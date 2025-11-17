@@ -9,7 +9,8 @@ name = "my-esp-project"
 path = "./src/bin/main.rs"
 
 [dependencies]
-esp-hal = { version = "1.0.0", features = ["esp32", "log-04"] }
+esp-hal = { version = "1.0.0", features = ["esp32", "log-04", "unstable"] }
+embedded-hal = "1.0.0"
 
 
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32", "log-04"] }
