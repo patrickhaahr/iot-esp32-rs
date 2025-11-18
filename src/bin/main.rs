@@ -6,17 +6,46 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use core::time::Duration;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
-use esp_hal::gpio::{Output, OutputConfig};
+use esp_hal::gpio::{Input, InputConfig, Output, OutputConfig, Pull};
 use esp_hal::main;
-use esp_hal::rtc_cntl::Rtc;
-use esp_hal::rtc_cntl::sleep::{Ext0WakeupSource, TimerWakeupSource, WakeupLevel};
-use esp_hal::rtc_cntl::{reset_reason, wakeup_cause};
-use esp_hal::system::SleepSource;
 use log::info;
+
+// ============================================================================
+// HARDWARE CONFIGURATION - SOURCE OF TRUTH
+// ============================================================================
+// To switch configurations: comment/uncomment the appropriate section below,
+// then manually update the GPIO pin assignments in the main() function.
+//
+// Note: ESP32 HAL requires compile-time peripheral selection, so you must
+// manually change peripherals.GPIOxx to match these numbers.
+
+// === Hans' Configuration (ACTIVE) ===
+const BTN1_GPIO: u8 = 19;  // Very Happy button → Use peripherals.GPIO19
+const BTN2_GPIO: u8 = 21;  // Happy button     → Use peripherals.GPIO21
+const BTN3_GPIO: u8 = 22;  // Neutral button   → Use peripherals.GPIO22
+const BTN4_GPIO: u8 = 23;  // Sad button       → Use peripherals.GPIO23
+
+const LED1_GPIO: u8 = 18;  // GREEN LED (Very Happy) → Use peripherals.GPIO18
+const LED2_GPIO: u8 = 5;   // YELLOW LED (Happy)     → Use peripherals.GPIO5
+const LED3_GPIO: u8 = 4;   // BLUE LED (Neutral)     → Use peripherals.GPIO4
+const LED4_GPIO: u8 = 15;  // RED LED (Sad)          → Use peripherals.GPIO15
+
+// === Patrick's Configuration (Commented Out) ===
+// Original setup from commits e4acaa8 and 7ecffa0
+// const BTN1_GPIO: u8 = 32;  // Button → Use peripherals.GPIO32
+// const BTN2_GPIO: u8 = 32;  // (same as BTN1)
+// const BTN3_GPIO: u8 = 32;  // (same as BTN1)
+// const BTN4_GPIO: u8 = 32;  // (same as BTN1)
+//
+// const LED1_GPIO: u8 = 4;   // RED LED  → Use peripherals.GPIO4
+// const LED2_GPIO: u8 = 5;   // BLUE LED → Use peripherals.GPIO5
+// const LED3_GPIO: u8 = 5;   // (same as LED2)
+// const LED4_GPIO: u8 = 4;   // (same as LED1)
+
+// ============================================================================
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -29,94 +58,103 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    // RED LED on GPIO4 - start OFF
+    info!("=== ESP32 4-Button 4-LED Hardware Test ===");
+    info!("Starting hardware test...");
+
+    // Configure LEDs (all start OFF)
     let led_config = OutputConfig::default();
-    let mut red_led = Output::new(peripherals.GPIO4, esp_hal::gpio::Level::Low, led_config);
 
-    // BLUE LED on GPIO5 - start OFF
-    let led_config = OutputConfig::default();
-    let mut blue_led = Output::new(peripherals.GPIO5, esp_hal::gpio::Level::Low, led_config);
+    // LED1: GREEN (Very Happy) - matches LED1_GPIO config
+    let mut green_led = Output::new(peripherals.GPIO18, esp_hal::gpio::Level::Low, led_config);
+    info!("GREEN LED initialized on GPIO{}", LED1_GPIO);
 
-    // Button on GPIO32 with pull-up (active low)
-    let button = peripherals.GPIO32;
+    // LED2: YELLOW (Happy) - matches LED2_GPIO config
+    let mut yellow_led = Output::new(peripherals.GPIO5, esp_hal::gpio::Level::Low, led_config);
+    info!("YELLOW LED initialized on GPIO{}", LED2_GPIO);
 
-    // Debounce delay
+    // LED3: BLUE (Neutral) - matches LED3_GPIO config
+    let mut blue_led = Output::new(peripherals.GPIO4, esp_hal::gpio::Level::Low, led_config);
+    info!("BLUE LED initialized on GPIO{}", LED3_GPIO);
+
+    // LED4: RED (Sad) - matches LED4_GPIO config
+    let mut red_led = Output::new(peripherals.GPIO15, esp_hal::gpio::Level::Low, led_config);
+    info!("RED LED initialized on GPIO{}", LED4_GPIO);
+
+    // Configure Buttons (all active LOW with internal pull-ups)
+    let input_config = InputConfig::default().with_pull(Pull::Up);
+
+    // BTN1: Very Happy - matches BTN1_GPIO config
+    let button1 = Input::new(peripherals.GPIO19, input_config);
+    info!("Button 1 (Very Happy) initialized on GPIO{}", BTN1_GPIO);
+
+    // BTN2: Happy - matches BTN2_GPIO config
+    let button2 = Input::new(peripherals.GPIO21, input_config);
+    info!("Button 2 (Happy) initialized on GPIO{}", BTN2_GPIO);
+
+    // BTN3: Neutral - matches BTN3_GPIO config
+    let button3 = Input::new(peripherals.GPIO22, input_config);
+    info!("Button 3 (Neutral) initialized on GPIO{}", BTN3_GPIO);
+
+    // BTN4: Sad - matches BTN4_GPIO config
+    let button4 = Input::new(peripherals.GPIO23, input_config);
+    info!("Button 4 (Sad) initialized on GPIO{}", BTN4_GPIO);
+
     let delay = Delay::new();
 
-    // Deep sleep
-    let mut rtc = Rtc::new(peripherals.LPWR);
+    // Startup LED test - flash all LEDs
+    info!("Running LED startup test...");
+    green_led.set_high();
+    delay.delay_millis(200);
+    green_led.set_low();
+    yellow_led.set_high();
+    delay.delay_millis(200);
+    yellow_led.set_low();
+    blue_led.set_high();
+    delay.delay_millis(200);
+    blue_led.set_low();
+    red_led.set_high();
+    delay.delay_millis(200);
+    red_led.set_low();
+    info!("LED test complete!");
 
-    let reason = reset_reason(esp_hal::system::Cpu::ProCpu);
-    let wake_reason = wakeup_cause();
+    info!("Ready for button presses. Press any button to test.");
+    info!("Buttons are active LOW (pressed = LOW, released = HIGH)");
 
-    info!("Reset reason: {:?}", reason);
-    info!("Wakeup reason: {:?}", wake_reason);
-
-    // Handle wakeup reason - turn on appropriate LED
-    match wake_reason {
-        SleepSource::Timer => {
-            blue_led.set_high();
-            red_led.set_low();
-            info!("Timer wakeup - BLUE LED ON");
-            // Keep LED on for 10 seconds before going back to sleep
-            delay.delay_millis(10000);
-        }
-        SleepSource::Ext0 => {
-            blue_led.set_low();
-            red_led.set_high();
-            info!("EXT0 button wakeup - RED LED ON");
-            // Keep LED on for 10 seconds before going back to sleep
-            delay.delay_millis(10000);
-        }
-        _ => {
-            // First boot or other wakeup source
-            info!("Initial boot or unknown wakeup source");
-            // Small delay before first sleep
-            delay.delay_millis(1000);
-        }
-    }
-
-    // Create wakeup sources
-    // Timer wakeup after 10 seconds
-    let timer = TimerWakeupSource::new(Duration::from_secs(10));
-
-    // Button wakeup on GPIO32
-    // Note: Using WakeupLevel::High - will wake when pin goes HIGH
-    // If you have a pull-down resistor and button connects to VCC, this wakes on press
-    // If you have a pull-up resistor and button connects to GND, this wakes on release
-    let ext0 = Ext0WakeupSource::new(button, WakeupLevel::High);
-
-    // Enter deep sleep with both wakeup sources
-    info!("Entering deep sleep...");
-    rtc.sleep_deep(&[&timer, &ext0])
-
-    /*
-    let mut last_state = button.is_high();
-    let mut red_led_active = true;
-
+    // Main loop - simple button to LED mapping
     loop {
-        let current_state = button.is_high();
-
-        if current_state != last_state {
-            if !current_state {
-                // Button pressed (going from high to low)
-                if red_led_active {
-                    red_led.set_low();
-                    blue_led.set_high();
-                    red_led_active = false;
-                    info!("Button pressed: Switched to BLUE LED");
-                } else {
-                    red_led.set_high();
-                    blue_led.set_low();
-                    red_led_active = true;
-                    info!("Button pressed: Switched to RED LED");
-                }
-                delay.delay_ms(50);
-            }
-            last_state = current_state;
+        // Button 1 -> GREEN LED
+        if button1.is_low() {
+            green_led.set_high();
+            info!("Button 1 (Very Happy) PRESSED - GREEN LED ON");
+        } else {
+            green_led.set_low();
         }
-        delay.delay_ms(10); // Small delay to prevent busy waiting
+
+        // Button 2 -> YELLOW LED
+        if button2.is_low() {
+            yellow_led.set_high();
+            info!("Button 2 (Happy) PRESSED - YELLOW LED ON");
+        } else {
+            yellow_led.set_low();
+        }
+
+        // Button 3 -> BLUE LED
+        if button3.is_low() {
+            blue_led.set_high();
+            info!("Button 3 (Neutral) PRESSED - BLUE LED ON");
+        } else {
+            blue_led.set_low();
+        }
+
+        // Button 4 -> RED LED
+        if button4.is_low() {
+            red_led.set_high();
+            info!("Button 4 (Sad) PRESSED - RED LED ON");
+        } else {
+            red_led.set_low();
+        }
+
+        // Small delay to prevent excessive serial output
+        delay.delay_millis(100);
     }
-    */
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0/examples/src/bin
 }
