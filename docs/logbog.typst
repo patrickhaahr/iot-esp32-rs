@@ -1,0 +1,12 @@
+#set page(paper: "a5")
+#set heading(numbering: none)
+#set text(lang: "da", size: 13pt)
+
+= Logbog
+
+== 1. Dag (18-11-2025)
+
+=== Patrick
+Initial opsætning med hardware konfiguration og med esp-rs/esp-hal software, test med LED og deepsleep funktioner.
+
+=== Hans

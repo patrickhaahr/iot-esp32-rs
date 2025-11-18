@@ -1,0 +1,45 @@
+#set page(paper: "a4")
+#set text(lang: "da", size: 13pt)
+#set heading(numbering: none)
+
+= Arbejdsportfolio
+
+Dette dokument fungerer som projektets arbejdsportfolio. Formålet er at dokumentere processen "fra idé til færdig løsning". Her beskrives alle ideer og beslutninger, som fører til løsning af projektets elementer – fra den spæde idé, via skitser, til den endelige implementering.
+
+== Produktkrav
+
+- Anordningen har 4 knapper, med tilhørende smileys.
+- Der er respons på LED ved hver knap.
+- På knapperne implementeres debounce funktionalitet.
+- Lysdioden ud for den trykkede knap lyser 
+- Anordningen tilsluttes internet, via wi-fi access-punkt i undervisningslokalet.
+- Anordningens ur synkroniseres løbende med NTP, og korrekt tidszone.
+- Knaptryk-data (værdi og timestamp), overføres via MQTT:
+  - Der bruges brugernavn og password, og hele kommunikationen er sikret ved brug af TLS-kryptering.
+- Anordningen er designet strømbesparende, ved brug af DeepSleep og batteridrift:
+  - Anordningen skal spare strøm ved at skifte til deep-sleep, når den er ubeskæftiget i et stykke tid.
+  - Eksperimenter og analyser skal vise de bedste tidsgrænser for hvor længe anordningen er ubeskæftiget, men aktiv.
+  - Samt, hvordan skal opvågnen fungere, så anordningen opdage hvad der sker, og falder i søvn igen.
+  - En god analyse og overvejelse danner grundlag for hvor længe anordningen sover, inden den vågner rutinemæssigt.
+
+== Teknologier
+
+Vi har valgt at skrive projektets software i *Rust*.
+
+Til dette benytter vi *esp-rs/esp-hal*, 
+som er officielt udviklet af *Espressif* specifikt til at understøtte Rust på ESP32-platformen. 
+Dette giver os fordelene ved Rusts hukommelsessikkerhed kombineret med direkte adgang til hardwaren gennem værktøjer 
+og biblioteker, der er målrettet netop denne platform.
+
+== NTP
+
+== MQTT
+
+== WIFI
+
+== Debounce
+
+== DeepSleep
+Der er allerede implementeret simpelt deepsleep funktionalitet, men ikke fuldendt til projektets behov.
+
+== TLS
