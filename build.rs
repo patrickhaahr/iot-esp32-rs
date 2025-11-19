@@ -1,7 +1,46 @@
 fn main() {
+    // Load .env file for WiFi credentials
+    load_dotenv();
+
     linker_be_nice();
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
     println!("cargo:rustc-link-arg=-Tlinkall.x");
+}
+
+fn load_dotenv() {
+    // Re-run build script if .env changes
+    println!("cargo:rerun-if-changed=.env");
+
+    let env_path = std::path::Path::new(".env");
+    if env_path.exists() {
+        let contents = std::fs::read_to_string(env_path).expect("Failed to read .env file");
+        for line in contents.lines() {
+            let line = line.trim();
+            // Skip empty lines and comments
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            // Parse KEY=VALUE
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim();
+                println!("cargo:rustc-env={}={}", key, value);
+            }
+        }
+    } else {
+        // Provide helpful error message
+        panic!(
+            "\n\n\
+            Missing .env file!\n\
+            \n\
+            Please create a .env file with your WiFi credentials:\n\
+            \n\
+            cp .env.example .env\n\
+            \n\
+            Then edit .env with your actual WiFi SSID and password.\n\
+            \n"
+        );
+    }
 }
 
 fn linker_be_nice() {

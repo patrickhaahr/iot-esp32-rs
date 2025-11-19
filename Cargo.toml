@@ -23,6 +23,9 @@ esp-backtrace = { version = "0.18.1", features = [
   "println",
 ] }
 esp-println = { version = "0.16.1", features = ["esp32", "log-04"] }
+esp-radio = { version = "0.17.0", features = ["esp32", "wifi", "esp-alloc", "log-04"] }
+esp-rtos = { version = "0.2.0", features = ["esp32", "esp-radio", "esp-alloc"] }
+esp-alloc = "0.9.0"
 
 
 [profile.dev]

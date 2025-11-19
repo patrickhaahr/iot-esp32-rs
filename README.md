@@ -4,6 +4,23 @@ A Rust-based embedded project for the ESP32 using `esp-hal`.
 
 ## Development
 
+### Wi-Fi Configuration
+
+Copy the example environment file and configure your Wi-Fi credentials:
+
+```sh
+cp .env.example .env
+```
+
+Edit `.env` with your Wi-Fi network details:
+
+```
+WIFI_SSID=your_wifi_network_name
+WIFI_PASSWORD=your_wifi_password
+```
+
+### Build and Flash
+
 To build, upload the code, and monitor the ESP32 serial output:
 
 ```sh
