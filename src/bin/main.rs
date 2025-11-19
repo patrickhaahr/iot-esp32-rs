@@ -25,8 +25,8 @@ use my_esp_project::wifi::{self, WifiCredentials};
 /// Debounce timing constant (milliseconds)
 const DEBOUNCE_MS: u32 = 50;
 
-/// Lockout period after button press (milliseconds)
-const LOCKOUT_MS: u32 = 7000;
+/// LED display duration after button press (milliseconds)
+const LED_DISPLAY_MS: u32 = 500;
 
 /// Polling interval (milliseconds)
 const POLL_INTERVAL_MS: u32 = 10;
@@ -79,53 +79,54 @@ impl ButtonState {
     }
 }
 
-/// Lockout state tracker
-struct LockoutState {
-    /// Is lockout currently active?
+/// LED activity state tracker
+struct LedActivityState {
+    /// Is any LED currently on?
     active: bool,
-    /// Which button triggered lockout (0-3)
-    button_index: usize,
-    /// When lockout ends (ms timestamp)
-    end_ms: u32,
+    /// Which LED is on (0-3)
+    led_index: usize,
+    /// When the LED was last activated (ms timestamp)
+    last_press_ms: u32,
 }
 
-impl LockoutState {
+impl LedActivityState {
     fn new() -> Self {
         Self {
             active: false,
-            button_index: 0,
-            end_ms: 0,
+            led_index: 0,
+            last_press_ms: 0,
         }
     }
 
-    /// Start lockout period for given button
-    fn start(&mut self, button_index: usize, current_ms: u32) {
+    /// Activate LED for given button (resets timer if already active)
+    fn activate(&mut self, led_index: usize, current_ms: u32) {
         self.active = true;
-        self.button_index = button_index;
-        self.end_ms = current_ms.wrapping_add(LOCKOUT_MS);
+        self.led_index = led_index;
+        self.last_press_ms = current_ms;
     }
 
-    /// Check if lockout has expired. Returns true if lockout just ended.
-    fn check_expired(&mut self, current_ms: u32) -> bool {
+    /// Check if display period has expired. Returns true if LED should turn off.
+    fn check_expired(&self, current_ms: u32) -> bool {
         if self.active {
-            // Check if lockout period has elapsed (handle wrap-around)
-            let elapsed = current_ms.wrapping_sub(self.end_ms.wrapping_sub(LOCKOUT_MS));
-            if elapsed >= LOCKOUT_MS {
-                self.active = false;
-                return true;
-            }
+            let elapsed = current_ms.wrapping_sub(self.last_press_ms);
+            return elapsed >= LED_DISPLAY_MS;
         }
         false
     }
 
-    /// Is lockout currently active?
+    /// Mark as inactive
+    fn deactivate(&mut self) {
+        self.active = false;
+    }
+
+    /// Is any LED currently active?
     fn is_active(&self) -> bool {
         self.active
     }
 
-    /// Get active button index
-    fn get_button(&self) -> usize {
-        self.button_index
+    /// Get active LED index
+    fn get_led(&self) -> usize {
+        self.led_index
     }
 }
 
@@ -279,15 +280,14 @@ fn main() -> ! {
         if let Some((_button_idx, led, button_name)) = wake_button {
             // Turn on LED immediately
             led.set_high();
-            info!("{} PRESSED (debounced)", button_name);
-            info!("Lockout started for {}ms - ignoring all inputs", LOCKOUT_MS);
+            info!("{} PRESSED", button_name);
 
-            // Wait for lockout period (7 seconds)
-            delay.delay_millis(LOCKOUT_MS);
+            // Display LED for 500ms
+            delay.delay_millis(LED_DISPLAY_MS);
 
             // Turn off LED
             led.set_low();
-            info!("Lockout ended - turning off LED");
+            info!("LED display complete");
         }
 
         // Return to deep sleep immediately
@@ -350,7 +350,7 @@ fn main() -> ! {
     let mut button_states = [
         ButtonState::new(), ButtonState::new(), ButtonState::new(), ButtonState::new()
     ];
-    let mut lockout = LockoutState::new();
+    let mut led_activity = LedActivityState::new();
     let mut elapsed_ms: u32 = 0;
 
     const BUTTON_NAMES: [&str; 4] = [
@@ -365,17 +365,50 @@ fn main() -> ! {
             button1.is_high(), button2.is_high(), button3.is_high(), button4.is_high()
         ];
 
-        // Check lockout expiration
-        if lockout.check_expired(elapsed_ms) {
-            let button_idx = lockout.get_button();
-            info!("Lockout ended - turning off LED");
-            match button_idx {
+        // Process all button inputs (no lockout - user can spam buttons)
+        for (idx, &is_high) in button_readings.iter().enumerate() {
+            if let Some(pressed) = button_states[idx].update(is_high, elapsed_ms) {
+                if pressed {
+                    info!("{} PRESSED", BUTTON_NAMES[idx]);
+                    
+                    // Turn off previous LED if different button pressed
+                    if led_activity.is_active() && led_activity.get_led() != idx {
+                        match led_activity.get_led() {
+                            0 => green_led.set_low(),
+                            1 => yellow_led.set_low(),
+                            2 => blue_led.set_low(),
+                            3 => red_led.set_low(),
+                            _ => {}
+                        }
+                    }
+                    
+                    // Turn on new LED
+                    match idx {
+                        0 => green_led.set_high(),
+                        1 => yellow_led.set_high(),
+                        2 => blue_led.set_high(),
+                        3 => red_led.set_high(),
+                        _ => {}
+                    }
+
+                    // Activate/reset LED timer
+                    led_activity.activate(idx, elapsed_ms);
+                }
+            }
+        }
+
+        // Check if LED display period has expired
+        if led_activity.check_expired(elapsed_ms) {
+            let led_idx = led_activity.get_led();
+            info!("LED display complete - turning off LED");
+            match led_idx {
                 0 => green_led.set_low(),
                 1 => yellow_led.set_low(),
                 2 => blue_led.set_low(),
                 3 => red_led.set_low(),
                 _ => {}
             }
+            led_activity.deactivate();
 
             // Prepare for deep sleep
             info!("Entering deep sleep...");
@@ -402,33 +435,6 @@ fn main() -> ! {
 
             let timer = TimerWakeupSource::new(Duration::from_secs(300));
             rtc.sleep_deep(&[&ext1, &timer]);
-        }
-
-        // Process buttons if not locked out
-        if !lockout.is_active() {
-            for (idx, &is_high) in button_readings.iter().enumerate() {
-                if let Some(pressed) = button_states[idx].update(is_high, elapsed_ms) {
-                    if pressed {
-                        info!("{} PRESSED", BUTTON_NAMES[idx]);
-                        
-                        // Turn on LED
-                        match idx {
-                            0 => green_led.set_high(),
-                            1 => yellow_led.set_high(),
-                            2 => blue_led.set_high(),
-                            3 => red_led.set_high(),
-                            _ => {}
-                        }
-
-                        // Start lockout
-                        lockout.start(idx, elapsed_ms);
-                        info!("Lockout started ({}ms)", LOCKOUT_MS);
-                    }
-                }
-            }
-        } else {
-             // Keep LED on during lockout (ensure state is held)
-             // (Already handled by not turning it off until lockout check_expired)
         }
 
         delay.delay_millis(POLL_INTERVAL_MS);
