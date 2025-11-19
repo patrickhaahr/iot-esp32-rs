@@ -30,38 +30,30 @@ fn main() -> ! {
 
     // LED1: GREEN (Very Happy) - matches LED1_GPIO config
     let mut green_led = Output::new(peripherals.GPIO15, esp_hal::gpio::Level::Low, led_config);
-    info!("GREEN LED initialized on GPIO{}", LED1_GPIO);
 
     // LED2: YELLOW (Happy) - matches LED2_GPIO config
     let mut yellow_led = Output::new(peripherals.GPIO4, esp_hal::gpio::Level::Low, led_config);
-    info!("YELLOW LED initialized on GPIO{}", LED2_GPIO);
 
     // LED3: BLUE (Neutral) - matches LED3_GPIO config
     let mut blue_led = Output::new(peripherals.GPIO5, esp_hal::gpio::Level::Low, led_config);
-    info!("BLUE LED initialized on GPIO{}", LED3_GPIO);
 
     // LED4: RED (Sad) - matches LED4_GPIO config
     let mut red_led = Output::new(peripherals.GPIO18, esp_hal::gpio::Level::Low, led_config);
-    info!("RED LED initialized on GPIO{}", LED4_GPIO);
 
     // Configure Buttons (all active LOW with internal pull-ups)
     let input_config = InputConfig::default().with_pull(Pull::Up);
 
     // BTN1: Very Happy - matches BTN1_GPIO config
     let button1 = Input::new(peripherals.GPIO19, input_config);
-    info!("Button 1 (Very Happy) initialized on GPIO{}", BTN1_GPIO);
 
     // BTN2: Happy - matches BTN2_GPIO config
     let button2 = Input::new(peripherals.GPIO21, input_config);
-    info!("Button 2 (Happy) initialized on GPIO{}", BTN2_GPIO);
 
     // BTN3: Neutral - matches BTN3_GPIO config
     let button3 = Input::new(peripherals.GPIO22, input_config);
-    info!("Button 3 (Neutral) initialized on GPIO{}", BTN3_GPIO);
 
     // BTN4: Sad - matches BTN4_GPIO config
     let button4 = Input::new(peripherals.GPIO23, input_config);
-    info!("Button 4 (Sad) initialized on GPIO{}", BTN4_GPIO);
 
     let delay = Delay::new();
 
