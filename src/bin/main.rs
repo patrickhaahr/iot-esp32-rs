@@ -28,6 +28,9 @@ const DEBOUNCE_MS: u32 = 50;
 /// LED display duration after button press (milliseconds)
 const LED_DISPLAY_MS: u32 = 500;
 
+/// Minimum time to wait before entering deep sleep (milliseconds)
+const SLEEP_DELAY_MS: u32 = 10000;
+
 /// Polling interval (milliseconds)
 const POLL_INTERVAL_MS: u32 = 10;
 
@@ -82,51 +85,70 @@ impl ButtonState {
 /// LED activity state tracker
 struct LedActivityState {
     /// Is any LED currently on?
-    active: bool,
+    led_active: bool,
     /// Which LED is on (0-3)
     led_index: usize,
     /// When the LED was last activated (ms timestamp)
     last_press_ms: u32,
+    /// Has any button been pressed (tracks sleep delay)
+    had_activity: bool,
 }
 
 impl LedActivityState {
     fn new() -> Self {
         Self {
-            active: false,
+            led_active: false,
             led_index: 0,
             last_press_ms: 0,
+            had_activity: false,
         }
     }
 
     /// Activate LED for given button (resets timer if already active)
     fn activate(&mut self, led_index: usize, current_ms: u32) {
-        self.active = true;
+        self.led_active = true;
         self.led_index = led_index;
         self.last_press_ms = current_ms;
+        self.had_activity = true;
     }
 
-    /// Check if display period has expired. Returns true if LED should turn off.
-    fn check_expired(&self, current_ms: u32) -> bool {
-        if self.active {
+    /// Check if LED display period has expired. Returns true if LED should turn off.
+    fn check_led_expired(&self, current_ms: u32) -> bool {
+        if self.led_active {
             let elapsed = current_ms.wrapping_sub(self.last_press_ms);
             return elapsed >= LED_DISPLAY_MS;
         }
         false
     }
 
-    /// Mark as inactive
-    fn deactivate(&mut self) {
-        self.active = false;
+    /// Check if sleep delay has expired. Returns true if device should sleep.
+    fn check_sleep_expired(&self, current_ms: u32) -> bool {
+        if self.had_activity && !self.led_active {
+            let elapsed = current_ms.wrapping_sub(self.last_press_ms);
+            return elapsed >= SLEEP_DELAY_MS;
+        }
+        false
+    }
+
+    /// Turn off LED but keep tracking for sleep delay
+    fn deactivate_led(&mut self) {
+        self.led_active = false;
     }
 
     /// Is any LED currently active?
-    fn is_active(&self) -> bool {
-        self.active
+    fn is_led_active(&self) -> bool {
+        self.led_active
     }
 
     /// Get active LED index
     fn get_led(&self) -> usize {
         self.led_index
+    }
+
+    /// Mark activity for sleep tracking (used at startup)
+    fn mark_activity(&mut self, current_ms: u32) {
+        self.had_activity = true;
+        self.last_press_ms = current_ms;
     }
 }
 
@@ -290,58 +312,16 @@ fn main() -> ! {
             info!("LED display complete");
         }
 
-        // Return to deep sleep immediately
-        info!("Entering deep sleep (target: <10µA current draw)...");
-        delay.delay_millis(100); // Allow log output to complete
-
-        // Drop Input drivers to release GPIO pins for EXT1 wakeup configuration
-        core::mem::drop(button1);
-        core::mem::drop(button2);
-        core::mem::drop(button3);
-        core::mem::drop(button4);
-
-        // Configure EXT1 wakeup source with all 4 RTC buttons (Active High)
-        let mut wakeup_pins: [&mut dyn RtcPin; 4] = [
-            &mut pin25, &mut pin26, &mut pin27, &mut pin32,
-        ];
-        // WakeupLevel::High supports "OR" logic natively on ESP32 (Any High)
-        let ext1 = Ext1WakeupSource::new(&mut wakeup_pins, WakeupLevel::High);
-
-        // Configure RTC Pull-Downs for Deep Sleep (matches external 10k pull-downs)
-        {
-            let rtc_io = esp_hal::peripherals::RTC_IO::regs();
-
-            // GPIO25 (TOUCH_PAD6)
-            rtc_io.touch_pad6().modify(|_, w| w.rue().clear_bit().rde().set_bit());
-
-            // GPIO26 (TOUCH_PAD7)
-            rtc_io.touch_pad7().modify(|_, w| w.rue().clear_bit().rde().set_bit());
-
-            // GPIO27 (RTC_GPIO17) - No internal pull-down available on some revisions, 
-            // but we have external pull-down so it's fine.
-
-            // GPIO32 (XTAL_32K_P)
-            rtc_io.xtal_32k_pad().modify(|_, w| {
-                w.x32p_rue().clear_bit()     // Disable pull-up
-                 .x32p_rde().set_bit()       // Enable pull-down
-                 .x32p_fun_ie().set_bit()    // Enable input function
-            });
-        }
-
-        // Backup timer wakeup (5 minutes)
-        let timer = TimerWakeupSource::new(Duration::from_secs(300));
-
-        // Go to sleep
-        rtc.sleep_deep(&[&ext1, &timer]);
+        // Fall through to main loop for 10-second activity window
+    } else {
+        // Power-on reset - run LED startup test
+        info!("Power-on reset detected - running LED startup test...");
+        green_led.set_high(); delay.delay_millis(200); green_led.set_low();
+        yellow_led.set_high(); delay.delay_millis(200); yellow_led.set_low();
+        blue_led.set_high(); delay.delay_millis(200); blue_led.set_low();
+        red_led.set_high(); delay.delay_millis(200); red_led.set_low();
+        info!("LED test complete! Ready for buttons.");
     }
-
-    // Power-on reset - run LED startup test
-    info!("Power-on reset detected - running LED startup test...");
-    green_led.set_high(); delay.delay_millis(200); green_led.set_low();
-    yellow_led.set_high(); delay.delay_millis(200); yellow_led.set_low();
-    blue_led.set_high(); delay.delay_millis(200); blue_led.set_low();
-    red_led.set_high(); delay.delay_millis(200); red_led.set_low();
-    info!("LED test complete! Ready for buttons.");
 
     info!("Buttons (RTC pins): GPIO25, GPIO26, GPIO27, GPIO32");
     info!("Active HIGH Logic (Press = High)");
@@ -351,6 +331,8 @@ fn main() -> ! {
         ButtonState::new(), ButtonState::new(), ButtonState::new(), ButtonState::new()
     ];
     let mut led_activity = LedActivityState::new();
+    // Mark activity at startup so device will sleep after 10 seconds if no buttons pressed
+    led_activity.mark_activity(0);
     let mut elapsed_ms: u32 = 0;
 
     const BUTTON_NAMES: [&str; 4] = [
@@ -372,7 +354,7 @@ fn main() -> ! {
                     info!("{} PRESSED", BUTTON_NAMES[idx]);
                     
                     // Turn off previous LED if different button pressed
-                    if led_activity.is_active() && led_activity.get_led() != idx {
+                    if led_activity.is_led_active() && led_activity.get_led() != idx {
                         match led_activity.get_led() {
                             0 => green_led.set_low(),
                             1 => yellow_led.set_low(),
@@ -397,8 +379,8 @@ fn main() -> ! {
             }
         }
 
-        // Check if LED display period has expired
-        if led_activity.check_expired(elapsed_ms) {
+        // Check if LED display period has expired (turn off LED after 500ms)
+        if led_activity.check_led_expired(elapsed_ms) {
             let led_idx = led_activity.get_led();
             info!("LED display complete - turning off LED");
             match led_idx {
@@ -408,8 +390,11 @@ fn main() -> ! {
                 3 => red_led.set_low(),
                 _ => {}
             }
-            led_activity.deactivate();
+            led_activity.deactivate_led();
+        }
 
+        // Check if sleep delay has expired (wait 10 seconds after last press before sleep)
+        if led_activity.check_sleep_expired(elapsed_ms) {
             // Prepare for deep sleep
             info!("Entering deep sleep...");
             delay.delay_millis(100);
