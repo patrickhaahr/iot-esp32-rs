@@ -10,3 +10,17 @@
 Initial opsætning med hardware konfiguration og med esp-rs/esp-hal software, test med LED og deepsleep funktioner.
 
 === Hans
+
+
+== 2. Dag (19-11-2025)
+
+=== Hans
+Implementering af button debounce og integration af WiFi funktionalitet:
+- Rettet GPIO pin assignments for LEDs
+- Fjernet unødvendige initialization logs
+- Implementeret button debounce logik med 50ms debounce tid
+- Tilføjet 7-sekunders lockout periode mellem button presses
+- Merged buttons-power-management branch med WiFi features
+- Integration af 4 buttons, 4 LEDs, WiFi connectivity og deep sleep
+- EXT1 wakeup konfiguration fra alle 4 RTC GPIO pins
+- WiFi SSID/password fejlfinding: rettet anførselstegn i .env fil
