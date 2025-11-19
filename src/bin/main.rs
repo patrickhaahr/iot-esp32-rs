@@ -19,6 +19,7 @@ use esp_hal::rtc_cntl::{reset_reason, wakeup_cause, Rtc, SocResetReason};
 use esp_hal::system::Cpu;
 use esp_hal::timer::timg::TimerGroup;
 use log::info;
+use my_esp_project::ntp;
 use my_esp_project::wifi::{self, WifiCredentials};
 
 /// Debounce timing constant (milliseconds)
@@ -177,10 +178,26 @@ fn main() -> ! {
         password: WIFI_PASSWORD,
     };
 
-    let _wifi_controller = wifi::connect(&radio_controller, peripherals.WIFI, &credentials)
+    let (_wifi_controller, mut interfaces) = wifi::connect(&radio_controller, peripherals.WIFI, &credentials)
         .expect("Failed to connect to WiFi");
 
     info!("WiFi connection established!");
+
+    // Attempt NTP time synchronization
+    info!("Attempting NTP time synchronization...");
+    match ntp::sync_time_with_device(&mut interfaces.sta) {
+        Ok(time) => {
+            let (h, m, s) = time.to_copenhagen_hms(false); // Use CET (winter time)
+            info!(
+                "NTP sync successful! Copenhagen time: {:02}:{:02}:{:02}",
+                h, m, s
+            );
+        }
+        Err(e) => {
+            info!("NTP sync failed: {}", e);
+            info!("NTP server: {} ({})", ntp::DENMARK_NTP_SERVER, ntp::DENMARK_NTP_SERVER_IP);
+        }
+    }
 
     // Configure LEDs (all start OFF)
     let led_config = OutputConfig::default();

@@ -23,9 +23,11 @@ esp-backtrace = { version = "0.18.1", features = [
   "println",
 ] }
 esp-println = { version = "0.16.1", features = ["esp32", "log-04"] }
-esp-radio = { version = "0.17.0", features = ["esp32", "wifi", "esp-alloc", "log-04"] }
+esp-radio = { version = "0.17.0", features = ["esp32", "wifi", "esp-alloc", "log-04", "smoltcp", "unstable"] }
+smoltcp = { version = "0.12.0", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "socket-dhcpv4"] }
 esp-rtos = { version = "0.2.0", features = ["esp32", "esp-radio", "esp-alloc"] }
 esp-alloc = "0.9.0"
+sntpc = { version = "0.6.1", default-features = false, features = ["sync"] }
 
 
 [profile.dev]

@@ -4,7 +4,7 @@
 
 use esp_hal::delay::Delay;
 use esp_hal::peripherals::WIFI;
-use esp_radio::wifi::{self, AuthMethod, ClientConfig, Config, ModeConfig, WifiController};
+use esp_radio::wifi::{self, AuthMethod, ClientConfig, Config, Interfaces, ModeConfig, WifiController};
 use esp_radio::Controller;
 use log::info;
 
@@ -16,16 +16,16 @@ pub struct WifiCredentials<'a> {
 
 /// Initialize and connect to WiFi
 ///
-/// Returns the WifiController on success, allowing the caller to manage the connection.
+/// Returns the WifiController and Interfaces on success.
 pub fn connect<'d>(
     radio_controller: &'d Controller<'d>,
     wifi_peripheral: WIFI<'d>,
     credentials: &WifiCredentials,
-) -> Result<WifiController<'d>, wifi::WifiError> {
+) -> Result<(WifiController<'d>, Interfaces<'d>), wifi::WifiError> {
     info!("Setting up WiFi...");
 
     // Create WiFi controller
-    let (mut wifi_controller, _interfaces) = wifi::new(
+    let (mut wifi_controller, interfaces) = wifi::new(
         radio_controller,
         wifi_peripheral,
         Config::default(),
@@ -66,5 +66,5 @@ pub fn connect<'d>(
         }
     }
 
-    Ok(wifi_controller)
+    Ok((wifi_controller, interfaces))
 }
