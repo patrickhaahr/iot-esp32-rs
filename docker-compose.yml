@@ -4,6 +4,7 @@ services:
     ports:
       - "8883:8883"  # MQTTS (TLS)
       - "1883:1883"  # Plain MQTT (local testing only)
+      - "1884:1884"  # Plain MQTT (network - for ESP32)
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data

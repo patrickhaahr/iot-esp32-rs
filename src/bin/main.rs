@@ -23,6 +23,7 @@ use my_esp_project::deep_sleep::{
     self, clear_ext1_wakeup_status, decode_wake_gpios, read_ext1_wakeup_status, SLEEP_DELAY_MS,
 };
 use my_esp_project::led::{LedActivityState, LED_DISPLAY_MS};
+use my_esp_project::mqtt;
 use my_esp_project::ntp;
 use my_esp_project::wifi::{self, WifiCredentials};
 
@@ -146,15 +147,36 @@ fn main() -> ! {
 
     info!("WiFi connection established!");
 
+    // Create smoltcp interface for networking
+    use smoltcp::iface::{Config, Interface};
+    use smoltcp::time::Instant;
+    use smoltcp::wire::EthernetAddress;
+
+    let mac_addr = interfaces.sta.mac_address();
+    let hardware_addr = EthernetAddress(mac_addr);
+    let config = Config::new(hardware_addr.into());
+    let mut iface = Interface::new(config, &mut interfaces.sta, Instant::from_millis(0));
+
+    // Setup network interface with DHCP (do this ONCE)
+    info!("Setting up network interface with DHCP...");
+    match ntp::setup_network_interface(&mut iface, &mut interfaces.sta) {
+        Ok(ip) => info!("Network configured with IP: {}", ip),
+        Err(e) => {
+            info!("DHCP failed: {}", e);
+            // Continue anyway - WiFi is connected
+        }
+    }
+
     // Attempt NTP time synchronization
     info!("Attempting NTP time synchronization...");
-    match ntp::sync_time_with_device(&mut interfaces.sta) {
+    let current_time = match ntp::sync_time_with_device(&mut iface, &mut interfaces.sta) {
         Ok(time) => {
             let (h, m, s) = time.to_copenhagen_hms(false); // Use CET (winter time)
             info!(
                 "NTP sync successful! Copenhagen time: {:02}:{:02}:{:02}",
                 h, m, s
             );
+            Some(time)
         }
         Err(e) => {
             info!("NTP sync failed: {}", e);
@@ -163,8 +185,9 @@ fn main() -> ! {
                 ntp::DENMARK_NTP_SERVER,
                 ntp::DENMARK_NTP_SERVER_IP
             );
+            None
         }
-    }
+    };
 
     // Configure LEDs (all start OFF)
     let led_config = OutputConfig::default();
@@ -233,10 +256,32 @@ fn main() -> ! {
             None
         };
 
-        if let Some((_button_idx, led, button_name)) = wake_button {
+        if let Some((button_idx, led, button_name)) = wake_button {
             // Turn on LED immediately
             led.set_high();
             info!("{} PRESSED", button_name);
+
+            // Publish MQTT feedback if we have NTP time
+            if let Some(time) = current_time {
+                let button_number = (button_idx + 1) as u8; // Convert 0-3 to 1-4
+                info!(
+                    "MQTT: Publishing feedback for button {} at timestamp {}",
+                    button_number, time.unix_timestamp
+                );
+
+                match mqtt::publish_button_feedback(
+                    &mut iface,
+                    &mut interfaces.sta,
+                    button_number,
+                    time.unix_timestamp,
+                    "esp32-smiley-001",
+                ) {
+                    Ok(_) => info!("MQTT: Feedback published successfully"),
+                    Err(e) => info!("MQTT: Failed to publish feedback: {}", e),
+                }
+            } else {
+                info!("MQTT: Skipping publish (no NTP time available)");
+            }
 
             // Display LED for 500ms
             delay.delay_millis(LED_DISPLAY_MS);
@@ -287,6 +332,28 @@ fn main() -> ! {
         for (idx, &is_high) in button_readings.iter().enumerate() {
             if let Some(true) = button_states[idx].update(is_high, elapsed_ms) {
                 info!("{} PRESSED", BUTTON_NAMES[idx]);
+
+                // Publish MQTT feedback if we have NTP time
+                if let Some(time) = current_time {
+                    let button_number = (idx + 1) as u8; // Convert 0-3 to 1-4
+                    info!(
+                        "MQTT: Publishing feedback for button {} at timestamp {}",
+                        button_number, time.unix_timestamp
+                    );
+
+                    match mqtt::publish_button_feedback(
+                        &mut iface,
+                        &mut interfaces.sta,
+                        button_number,
+                        time.unix_timestamp,
+                        "esp32-smiley-001",
+                    ) {
+                        Ok(_) => info!("MQTT: Feedback published successfully"),
+                        Err(e) => info!("MQTT: Failed to publish feedback: {}", e),
+                    }
+                } else {
+                    info!("MQTT: Skipping publish (no NTP time available)");
+                }
 
                 // Turn off previous LED if different button pressed
                 if led_activity.is_led_active() && led_activity.get_led() != idx {
