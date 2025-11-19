@@ -2,6 +2,9 @@
 debug/
 target/
 
+# Environment variables (contains secrets)
+.env
+
 # Editor configuration
 .vscode/
 .zed/

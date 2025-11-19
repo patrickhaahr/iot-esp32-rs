@@ -6,6 +6,8 @@
     holding buffers for the duration of a data transfer."
 )]
 
+extern crate alloc;
+
 use core::time::Duration;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
@@ -15,7 +17,9 @@ use esp_hal::main;
 use esp_hal::rtc_cntl::sleep::{Ext1WakeupSource, TimerWakeupSource, WakeupLevel};
 use esp_hal::rtc_cntl::{reset_reason, wakeup_cause, Rtc, SocResetReason};
 use esp_hal::system::Cpu;
+use esp_hal::timer::timg::TimerGroup;
 use log::info;
+use my_esp_project::wifi::{self, WifiCredentials};
 
 /// Debounce timing constant (milliseconds)
 const DEBOUNCE_MS: u32 = 50;
@@ -126,6 +130,10 @@ impl LockoutState {
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+// WiFi credentials loaded from .env file at compile time
+const WIFI_SSID: &str = env!("WIFI_SSID");
+const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
+
 #[main]
 fn main() -> ! {
     // CRITICAL: Read EXT1 wakeup status IMMEDIATELY before ANY initialization
@@ -134,6 +142,9 @@ fn main() -> ! {
         const RTC_CNTL_EXT_WAKEUP1_STATUS_REG: *const u32 = 0x3ff4_80D0 as *const u32;
         core::ptr::read_volatile(RTC_CNTL_EXT_WAKEUP1_STATUS_REG)
     };
+
+    // Initialize heap allocator (required for WiFi)
+    esp_alloc::heap_allocator!(size: 72 * 1024);
 
     esp_println::logger::init_logger_from_env();
 
@@ -147,9 +158,29 @@ fn main() -> ! {
     let reset_rsn = reset_reason(Cpu::ProCpu);
     let wake_rsn = wakeup_cause();
 
-    info!("=== ESP32 Smiley Feedback Panel ===");
+    info!("=== ESP32 Smiley Feedback Panel with WiFi ===");
     info!("Reset reason: {:?}", reset_rsn);
     info!("Wake reason: {:?}", wake_rsn);
+
+    // Initialize timer for RTOS scheduler
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+
+    // Start the RTOS scheduler (required for WiFi)
+    esp_rtos::start(timg0.timer0);
+
+    // Initialize esp-radio
+    let radio_controller = esp_radio::init().unwrap();
+
+    // Connect to WiFi
+    let credentials = WifiCredentials {
+        ssid: WIFI_SSID,
+        password: WIFI_PASSWORD,
+    };
+
+    let _wifi_controller = wifi::connect(&radio_controller, peripherals.WIFI, &credentials)
+        .expect("Failed to connect to WiFi");
+
+    info!("WiFi connection established!");
 
     // Configure LEDs (all start OFF)
     let led_config = OutputConfig::default();
