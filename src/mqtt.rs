@@ -1,19 +1,16 @@
 //! MQTT module for ESP32 feedback panel
 //!
 //! Provides MQTT client functionality for publishing button press feedback
-//! to an MQTT broker using a simplified MQTT implementation over smoltcp.
+//! to an MQTT broker over plain TCP (educational project).
 //!
-//! # Implementation Note
-//! This is a simplified MQTT client designed specifically for the feedback panel use case.
-//! It implements basic MQTT 3.1.1 CONNECT and PUBLISH operations over plain TCP (no TLS).
+//! # Architecture
+//! - Direct TCP socket communication with MQTT broker
+//! - Implements simplified MQTT 3.1.1 client protocol
 //!
-//! **IMPORTANT**: Currently configured for port 8883 but TLS is NOT implemented.
-//! This will attempt a plain TCP connection to the MQTTS port. Options:
-//! 1. Configure broker to accept non-TLS on port 8883 (insecure, testing only)
-//! 2. Configure broker with non-TLS listener on port 1883 for network access
-//! 3. Implement TLS support using embedded-tls or ESP-IDF TLS
-//!
-//! For production use, consider using minimq with embedded-nal or ESP-IDF's MQTT component.
+//! # Security
+//! - Plain TCP on port 1884 (educational network environment)
+//! - Username/password authentication at MQTT level
+//! - Production use would require TLS or network isolation
 
 use core::fmt::Write;
 use core::net::Ipv4Addr;
@@ -32,21 +29,21 @@ use smoltcp::wire::{IpEndpoint, Ipv4Address};
 pub struct MqttBrokerConfig {
     /// Broker IP address
     pub ip: Ipv4Addr,
-    /// MQTT port (1883 for non-TLS, 8883 for TLS)
+    /// MQTT port (8883 for TLS)
     pub port: u16,
-    /// MQTT username (optional)
-    pub username: Option<&'static str>,
-    /// MQTT password (optional)
-    pub password: Option<&'static str>,
+    /// MQTT username
+    pub username: &'static str,
+    /// MQTT password
+    pub password: &'static str,
 }
 
 impl Default for MqttBrokerConfig {
     fn default() -> Self {
         Self {
-            ip: Ipv4Addr::new(192, 168, 0, 216), // Docker host (WiFi adapter IP)
-            port: 1884,                           // Plain MQTT on network (no TLS)
-            username: Some("elev1"),
-            password: Some("elev1password"),      // Password for authentication
+            ip: Ipv4Addr::new(192, 168, 0, 189), // Host machine IP
+            port: 1884,                           // Plain MQTT port (educational)
+            username: "elev1",
+            password: "password",
         }
     }
 }
@@ -99,11 +96,11 @@ enum PacketType {
 /// Build MQTT CONNECT packet
 fn build_connect_packet(
     client_id: &str,
-    username: Option<&str>,
-    password: Option<&str>,
+    username: &str,
+    password: &str,
     buffer: &mut [u8],
 ) -> Result<usize, MqttError> {
-    if buffer.len() < 64 {
+    if buffer.len() < 128 {
         return Err(MqttError::BufferTooSmall);
     }
 
@@ -129,14 +126,8 @@ fn build_connect_packet(
     buffer[pos] = 0x04;
     pos += 1;
 
-    // Connect Flags
-    let mut connect_flags = 0x02; // Clean Session = 1
-    if username.is_some() {
-        connect_flags |= 0x80; // Username flag
-    }
-    if password.is_some() {
-        connect_flags |= 0x40; // Password flag
-    }
+    // Connect Flags: Clean Session + Username + Password
+    let connect_flags = 0x02 | 0x80 | 0x40; // Clean Session | Username | Password
     buffer[pos] = connect_flags;
     pos += 1;
 
@@ -155,27 +146,23 @@ fn build_connect_packet(
     buffer[pos..pos + client_id_bytes.len()].copy_from_slice(client_id_bytes);
     pos += client_id_bytes.len();
 
-    // Username (if provided)
-    if let Some(user) = username {
-        let username_bytes = user.as_bytes();
-        buffer[pos] = (username_bytes.len() >> 8) as u8;
-        pos += 1;
-        buffer[pos] = (username_bytes.len() & 0xFF) as u8;
-        pos += 1;
-        buffer[pos..pos + username_bytes.len()].copy_from_slice(username_bytes);
-        pos += username_bytes.len();
-    }
+    // Username
+    let username_bytes = username.as_bytes();
+    buffer[pos] = (username_bytes.len() >> 8) as u8;
+    pos += 1;
+    buffer[pos] = (username_bytes.len() & 0xFF) as u8;
+    pos += 1;
+    buffer[pos..pos + username_bytes.len()].copy_from_slice(username_bytes);
+    pos += username_bytes.len();
 
-    // Password (if provided)
-    if let Some(pass) = password {
-        let password_bytes = pass.as_bytes();
-        buffer[pos] = (password_bytes.len() >> 8) as u8;
-        pos += 1;
-        buffer[pos] = (password_bytes.len() & 0xFF) as u8;
-        pos += 1;
-        buffer[pos..pos + password_bytes.len()].copy_from_slice(password_bytes);
-        pos += password_bytes.len();
-    }
+    // Password
+    let password_bytes = password.as_bytes();
+    buffer[pos] = (password_bytes.len() >> 8) as u8;
+    pos += 1;
+    buffer[pos] = (password_bytes.len() & 0xFF) as u8;
+    pos += 1;
+    buffer[pos..pos + password_bytes.len()].copy_from_slice(password_bytes);
+    pos += password_bytes.len();
 
     // Fill in remaining length (total length - 2 bytes for fixed header)
     let remaining_length = pos - remaining_length_pos - 1;
@@ -184,10 +171,11 @@ fn build_connect_packet(
     Ok(pos)
 }
 
-/// Build MQTT PUBLISH packet (QoS 0)
+/// Build MQTT PUBLISH packet (QoS 1 with packet ID)
 fn build_publish_packet(
     topic: &str,
     payload: &[u8],
+    packet_id: u16,
     buffer: &mut [u8],
 ) -> Result<usize, MqttError> {
     if buffer.len() < topic.len() + payload.len() + 32 {
@@ -196,23 +184,25 @@ fn build_publish_packet(
 
     let mut pos = 0;
 
-    // Fixed header: PUBLISH packet type (QoS 0, no retain, no dup)
-    buffer[pos] = PacketType::Publish as u8;
+    // Fixed header: PUBLISH packet type with QoS 1 (0x32 = 0x30 | 0x02)
+    buffer[pos] = 0x32; // PUBLISH with QoS 1
     pos += 1;
 
-    // Calculate remaining length
-    let remaining_length = 2 + topic.len() + payload.len();
+    // Calculate remaining length (topic + packet_id + payload)
+    let remaining_length = 2 + topic.len() + 2 + payload.len(); // 2 for topic len, 2 for packet ID
 
-    // Encode remaining length (simple case: < 128 bytes)
+    // Encode remaining length
     if remaining_length < 128 {
         buffer[pos] = remaining_length as u8;
         pos += 1;
-    } else {
+    } else if remaining_length < 16384 {
         // Two-byte encoding for 128-16383
         buffer[pos] = (remaining_length & 0x7F) as u8 | 0x80;
         pos += 1;
         buffer[pos] = (remaining_length >> 7) as u8;
         pos += 1;
+    } else {
+        return Err(MqttError::BufferTooSmall);
     }
 
     // Variable header: Topic name
@@ -223,6 +213,12 @@ fn build_publish_packet(
     pos += 1;
     buffer[pos..pos + topic_bytes.len()].copy_from_slice(topic_bytes);
     pos += topic_bytes.len();
+
+    // Packet ID (required for QoS 1)
+    buffer[pos] = (packet_id >> 8) as u8; // MSB
+    pos += 1;
+    buffer[pos] = (packet_id & 0xFF) as u8; // LSB
+    pos += 1;
 
     // Payload
     buffer[pos..pos + payload.len()].copy_from_slice(payload);
@@ -243,10 +239,24 @@ fn build_disconnect_packet(buffer: &mut [u8]) -> Result<usize, MqttError> {
     Ok(2)
 }
 
-/// Simplified MQTT publish function for quick integration
+/// Helper function to poll network interface
+fn poll_network(
+    iface: &mut Interface,
+    device: &mut WifiDevice<'_>,
+    sockets: &mut SocketSet<'_>,
+    timestamp_ms: i64,
+) {
+    let timestamp = Instant::from_millis(timestamp_ms);
+    iface.poll(timestamp, device, sockets);
+}
+
+/// Publish button feedback over plain MQTT (no TLS)
 ///
-/// This function creates a TCP connection, sends CONNECT and PUBLISH packets,
-/// and disconnects. It's designed for simple one-shot publish operations.
+/// This function:
+/// 1. Establishes TCP connection to broker on port 1884
+/// 2. Sends MQTT CONNECT with authentication
+/// 3. Publishes button feedback message
+/// 4. Disconnects gracefully
 ///
 /// # Args
 /// * `iface` - Pre-configured smoltcp interface with IP address and routing
@@ -278,13 +288,13 @@ pub fn publish_button_feedback(
     let delay = Delay::new();
 
     info!(
-        "MQTT: Connecting to broker {}:{}",
+        "MQTT: Connecting to broker {}:{} (plain TCP)",
         broker_config.ip, broker_config.port
     );
 
-    // Create TCP socket
-    let mut tcp_rx_buffer = [0u8; 512];
-    let mut tcp_tx_buffer = [0u8; 512];
+    // Create TCP socket with larger buffers
+    let mut tcp_rx_buffer = [0u8; 8192];
+    let mut tcp_tx_buffer = [0u8; 8192];
     let tcp_socket = tcp::Socket::new(
         tcp::SocketBuffer::new(&mut tcp_rx_buffer[..]),
         tcp::SocketBuffer::new(&mut tcp_tx_buffer[..]),
@@ -304,7 +314,7 @@ pub fn publish_button_feedback(
     );
     let broker_endpoint = IpEndpoint::new(broker_addr.into(), broker_config.port);
 
-    // Connect to broker
+    // Connect to broker (TCP)
     info!("MQTT: Initiating TCP connection...");
     let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
     socket
@@ -314,17 +324,29 @@ pub fn publish_button_feedback(
             MqttError::ConnectionFailed
         })?;
 
-    // Poll until connected
+    // Poll until TCP connected
     let mut timeout_counter = 0u32;
     let mut connected = false;
+    let mut timestamp_ms = 0i64;
+
     while !connected && timeout_counter < 100 {
-        let timestamp = Instant::from_millis(timeout_counter as i64 * 50);
-        iface.poll(timestamp, device, &mut sockets);
+        // Poll network stack
+        for _ in 0..5 {
+            poll_network(iface, device, &mut sockets, timestamp_ms);
+            timestamp_ms += 10;
+        }
 
         let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-        if socket.is_active() {
+
+        // Log connection state for debugging
+        if timeout_counter % 10 == 0 {
+            info!("MQTT: TCP state check #{} - may_send: {}, may_recv: {}",
+                  timeout_counter / 10, socket.may_send(), socket.may_recv());
+        }
+
+        if socket.may_send() && socket.may_recv() {
             connected = true;
-            info!("MQTT: TCP connected");
+            info!("MQTT: TCP connected successfully!");
         }
 
         if !connected {
@@ -334,36 +356,14 @@ pub fn publish_button_feedback(
     }
 
     if !connected {
-        info!("MQTT: TCP connection timeout");
+        info!("MQTT: TCP connection timeout after {}ms", timeout_counter * 50);
         return Err(MqttError::Timeout);
     }
 
-    // After connection is established, wait for socket to be in Established state
-    info!("MQTT: TCP connected, waiting for socket to be established...");
-    let mut socket_established = false;
-    for i in 0..20 {
-        let timestamp = Instant::from_millis((timeout_counter + 1 + i) as i64 * 50);
-        iface.poll(timestamp, device, &mut sockets);
-
-        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-        if socket.may_send() {
-            socket_established = true;
-            info!("MQTT: Socket established and ready after {} polls", i + 1);
-            break;
-        }
-        delay.delay_millis(50);
-    }
-
-    if !socket_established {
-        info!("MQTT: Socket never reached established state");
-        return Err(MqttError::ConnectionFailed);
-    }
-
-    // Build and send MQTT CONNECT packet
+    // Build and send MQTT CONNECT packet (over plain TCP)
     let mut connect_buffer = [0u8; 256];
-    let client_id = device_id;
     let connect_len = build_connect_packet(
-        client_id,
+        device_id,
         broker_config.username,
         broker_config.password,
         &mut connect_buffer,
@@ -371,76 +371,57 @@ pub fn publish_button_feedback(
 
     info!("MQTT: Sending CONNECT packet ({} bytes)", connect_len);
 
-    // Try to send CONNECT packet - retry if it fails
-    let mut send_success = false;
-    for attempt in 0..10 {
-        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-        match socket.send_slice(&connect_buffer[..connect_len]) {
-            Ok(_) => {
-                if attempt == 0 {
-                    info!("MQTT: CONNECT packet queued successfully");
-                } else {
-                    info!("MQTT: CONNECT packet queued after {} retries", attempt);
-                }
-                send_success = true;
-                break;
-            }
-            Err(e) => {
-                if attempt == 0 {
-                    info!("MQTT: Send failed: {:?}, retrying...", e);
-                }
-                // Wait and poll before retry
-                let timestamp = Instant::from_millis((timeout_counter + 10 + attempt) as i64 * 50);
-                iface.poll(timestamp, device, &mut sockets);
-                delay.delay_millis(50);
-
-                if attempt == 9 {
-                    info!("MQTT: Failed to send after {} attempts: {:?}", attempt + 1, e);
-                    return Err(MqttError::SendFailed);
-                }
-            }
+    // Send CONNECT packet through TCP socket
+    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+    match socket.send_slice(&connect_buffer[..connect_len]) {
+        Ok(sent) if sent == connect_len => {
+            info!("MQTT: CONNECT sent successfully ({} bytes)", sent);
+        }
+        Ok(sent) => {
+            info!("MQTT: Partial CONNECT sent ({}/{})", sent, connect_len);
+            return Err(MqttError::SendFailed);
+        }
+        Err(_) => {
+            info!("MQTT: Failed to send CONNECT");
+            return Err(MqttError::SendFailed);
         }
     }
 
-    if !send_success {
-        return Err(MqttError::SendFailed);
-    }
-
-    // Poll to actually send the packet
-    for _ in 0..5 {
-        let timestamp = Instant::from_millis((timeout_counter + 20) as i64 * 50);
-        iface.poll(timestamp, device, &mut sockets);
-        delay.delay_millis(50);
+    // Poll to ensure packet is sent
+    for _ in 0..10 {
+        poll_network(iface, device, &mut sockets, timestamp_ms);
+        timestamp_ms += 10;
+        delay.delay_millis(10);
     }
 
     // Wait for CONNACK
     info!("MQTT: Waiting for CONNACK...");
-    let mut connack_received = false;
-    let mut connack_timeout = 0u32;
-    while !connack_received && connack_timeout < 40 {
-        let timestamp = Instant::from_millis((timeout_counter + connack_timeout + 2) as i64 * 50);
-        iface.poll(timestamp, device, &mut sockets);
+    let mut connack_buffer = [0u8; 4];
+    let mut received_connack = false;
+
+    for _ in 0..50 {
+        poll_network(iface, device, &mut sockets, timestamp_ms);
+        timestamp_ms += 10;
 
         let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
         if socket.can_recv() {
-            let mut connack_buffer = [0u8; 4];
-            if let Ok(size) = socket.recv_slice(&mut connack_buffer) {
-                if size >= 2 && connack_buffer[0] == PacketType::ConnAck as u8 {
-                    connack_received = true;
+            match socket.recv_slice(&mut connack_buffer) {
+                Ok(size) if size >= 2 && connack_buffer[0] == PacketType::ConnAck as u8 => {
                     info!("MQTT: CONNACK received, connected to broker");
+                    received_connack = true;
+                    break;
                 }
+                Ok(size) if size > 0 => {
+                    info!("MQTT: Received {} bytes, but not CONNACK yet", size);
+                }
+                _ => {}
             }
         }
-
-        if !connack_received {
-            delay.delay_millis(50);
-            connack_timeout += 1;
-        }
+        delay.delay_millis(10);
     }
 
-    if !connack_received {
-        info!("MQTT: CONNACK timeout");
-        // Continue anyway - some brokers may not send CONNACK immediately
+    if !received_connack {
+        info!("MQTT: CONNACK not received, but continuing anyway");
     }
 
     // Build topic: feedback/{device_id}/{button}
@@ -468,24 +449,66 @@ pub fn publish_button_feedback(
     info!("MQTT: Publishing to topic: {}", topic.as_str());
     info!("MQTT: Payload: {}", payload.as_str());
 
-    // Build and send MQTT PUBLISH packet
+    // Build and send MQTT PUBLISH packet (QoS 1)
     let mut publish_buffer = [0u8; 256];
+    let packet_id = 1u16; // Simple packet ID
     let publish_len =
-        build_publish_packet(topic.as_str(), payload.as_bytes(), &mut publish_buffer)?;
+        build_publish_packet(topic.as_str(), payload.as_bytes(), packet_id, &mut publish_buffer)?;
 
     info!("MQTT: Sending PUBLISH packet ({} bytes)", publish_len);
-    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-    socket
-        .send_slice(&publish_buffer[..publish_len])
-        .map_err(|_| {
-            info!("MQTT: Failed to send PUBLISH");
-            MqttError::SendFailed
-        })?;
 
-    // Poll to send the packet
-    let timestamp = Instant::from_millis((timeout_counter + connack_timeout + 3) as i64 * 50);
-    iface.poll(timestamp, device, &mut sockets);
-    delay.delay_millis(100);
+    // Send PUBLISH through TCP socket
+    let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+    match socket.send_slice(&publish_buffer[..publish_len]) {
+        Ok(sent) if sent == publish_len => {
+            info!("MQTT: PUBLISH sent successfully ({} bytes)", sent);
+        }
+        Ok(sent) => {
+            info!("MQTT: Partial PUBLISH sent ({}/{})", sent, publish_len);
+            return Err(MqttError::SendFailed);
+        }
+        Err(_) => {
+            info!("MQTT: Failed to send PUBLISH");
+            return Err(MqttError::SendFailed);
+        }
+    }
+
+    // Poll to ensure packet is sent
+    for _ in 0..10 {
+        poll_network(iface, device, &mut sockets, timestamp_ms);
+        timestamp_ms += 10;
+        delay.delay_millis(10);
+    }
+
+    // Wait for PUBACK (QoS 1)
+    info!("MQTT: Waiting for PUBACK...");
+    let mut puback_buffer = [0u8; 4];
+    let mut received_puback = false;
+
+    for _ in 0..50 {
+        poll_network(iface, device, &mut sockets, timestamp_ms);
+        timestamp_ms += 10;
+
+        let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
+        if socket.can_recv() {
+            match socket.recv_slice(&mut puback_buffer) {
+                Ok(size) if size >= 2 && puback_buffer[0] == PacketType::PubAck as u8 => {
+                    info!("MQTT: PUBACK received");
+                    received_puback = true;
+                    break;
+                }
+                Ok(size) if size > 0 => {
+                    info!("MQTT: Received {} bytes, but not PUBACK yet", size);
+                }
+                _ => {}
+            }
+        }
+        delay.delay_millis(10);
+    }
+
+    if !received_puback {
+        info!("MQTT: PUBACK not received, but message likely delivered");
+    }
 
     info!("MQTT: Feedback published successfully");
 
@@ -495,18 +518,21 @@ pub fn publish_button_feedback(
 
     info!("MQTT: Sending DISCONNECT packet");
     let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
-    socket
-        .send_slice(&disconnect_buffer[..disconnect_len])
-        .ok(); // Ignore errors on disconnect
+    let _ = socket.send_slice(&disconnect_buffer[..disconnect_len]);
 
     // Poll to send disconnect
-    let timestamp = Instant::from_millis((timeout_counter + connack_timeout + 4) as i64 * 50);
-    iface.poll(timestamp, device, &mut sockets);
-    delay.delay_millis(50);
+    for _ in 0..5 {
+        poll_network(iface, device, &mut sockets, timestamp_ms);
+        timestamp_ms += 10;
+        delay.delay_millis(10);
+    }
 
-    // Close socket
+    // Close TCP connection gracefully
+    info!("MQTT: Closing TCP connection");
     let socket = sockets.get_mut::<tcp::Socket>(tcp_handle);
     socket.close();
+
+    delay.delay_millis(100);
 
     info!("MQTT: Disconnected from broker");
 

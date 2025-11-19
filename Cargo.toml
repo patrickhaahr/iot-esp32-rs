@@ -29,6 +29,10 @@ esp-rtos = { version = "0.2.0", features = ["esp32", "esp-radio", "esp-alloc"] }
 esp-alloc = "0.9.0"
 sntpc = { version = "0.6.1", default-features = false, features = ["sync"] }
 heapless = "0.9"
+embedded-tls = { version = "0.17.0", default-features = false }
+embedded-io = "0.6"
+embedded-io-async = "0.6"
+rand_core = "0.6"
 
 
 [profile.dev]
