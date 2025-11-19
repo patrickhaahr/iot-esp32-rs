@@ -13,42 +13,6 @@ use esp_hal::gpio::{Input, InputConfig, Output, OutputConfig, Pull};
 use esp_hal::main;
 use log::info;
 
-// ============================================================================
-// HARDWARE CONFIGURATION - SOURCE OF TRUTH
-// ============================================================================
-// To switch configurations: comment/uncomment the appropriate section below,
-// then manually update the GPIO pin assignments in the main() function.
-//
-// Note: ESP32 HAL requires compile-time peripheral selection, so you must
-// manually change peripherals.GPIOxx to match these numbers.
-
-// === Hans' Configuration (ACTIVE) ===
-const BTN1_GPIO: u8 = 19;  // Very Happy button → Use peripherals.GPIO19
-const BTN2_GPIO: u8 = 21;  // Happy button     → Use peripherals.GPIO21
-const BTN3_GPIO: u8 = 22;  // Neutral button   → Use peripherals.GPIO22
-const BTN4_GPIO: u8 = 23;  // Sad button       → Use peripherals.GPIO23
-
-const LED1_GPIO: u8 = 18;  // GREEN LED (Very Happy) → Use peripherals.GPIO18
-const LED2_GPIO: u8 = 5;   // YELLOW LED (Happy)     → Use peripherals.GPIO5
-const LED3_GPIO: u8 = 4;   // BLUE LED (Neutral)     → Use peripherals.GPIO4
-const LED4_GPIO: u8 = 15;  // RED LED (Sad)          → Use peripherals.GPIO15
-
-// === Patrick's Configuration (Commented Out) ===
-// Original setup from commits e4acaa8 and 7ecffa0
-// const BTN1_GPIO: u8 = 32;  // Button → Use peripherals.GPIO32
-// const BTN2_GPIO: u8 = 32;  // (same as BTN1)
-// const BTN3_GPIO: u8 = 32;  // (same as BTN1)
-// const BTN4_GPIO: u8 = 32;  // (same as BTN1)
-//
-// const LED1_GPIO: u8 = 4;   // RED LED  → Use peripherals.GPIO4
-// const LED2_GPIO: u8 = 5;   // BLUE LED → Use peripherals.GPIO5
-// const LED3_GPIO: u8 = 5;   // (same as LED2)
-// const LED4_GPIO: u8 = 4;   // (same as LED1)
-
-// ============================================================================
-
-// This creates a default app-descriptor required by the esp-idf bootloader.
-// For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[main]
@@ -65,19 +29,19 @@ fn main() -> ! {
     let led_config = OutputConfig::default();
 
     // LED1: GREEN (Very Happy) - matches LED1_GPIO config
-    let mut green_led = Output::new(peripherals.GPIO18, esp_hal::gpio::Level::Low, led_config);
+    let mut green_led = Output::new(peripherals.GPIO15, esp_hal::gpio::Level::Low, led_config);
     info!("GREEN LED initialized on GPIO{}", LED1_GPIO);
 
     // LED2: YELLOW (Happy) - matches LED2_GPIO config
-    let mut yellow_led = Output::new(peripherals.GPIO5, esp_hal::gpio::Level::Low, led_config);
+    let mut yellow_led = Output::new(peripherals.GPIO4, esp_hal::gpio::Level::Low, led_config);
     info!("YELLOW LED initialized on GPIO{}", LED2_GPIO);
 
     // LED3: BLUE (Neutral) - matches LED3_GPIO config
-    let mut blue_led = Output::new(peripherals.GPIO4, esp_hal::gpio::Level::Low, led_config);
+    let mut blue_led = Output::new(peripherals.GPIO5, esp_hal::gpio::Level::Low, led_config);
     info!("BLUE LED initialized on GPIO{}", LED3_GPIO);
 
     // LED4: RED (Sad) - matches LED4_GPIO config
-    let mut red_led = Output::new(peripherals.GPIO15, esp_hal::gpio::Level::Low, led_config);
+    let mut red_led = Output::new(peripherals.GPIO18, esp_hal::gpio::Level::Low, led_config);
     info!("RED LED initialized on GPIO{}", LED4_GPIO);
 
     // Configure Buttons (all active LOW with internal pull-ups)
