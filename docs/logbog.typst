@@ -10,9 +10,41 @@
 Initial opsætning med hardware konfiguration og med esp-rs/esp-hal software, test med LED og deepsleep funktioner.
 
 === Hans
-
+Initial opsætning med hardware konfiguration og software setup
 
 == 2. Dag (19-11-2025)
+
+=== Patrick
+Implementering af WiFi funktionalitet:
+- Brugte esp-radio libary
+- .env til WiFi SSID og password konfiguration
+- load .env contents i build.rs
+
+Implementering af NTP time sync:
+- Brugte esp-radio, sntcp, smoltcp libaries
+- Danmark NTP server
+- Forskellige offset for sommer og vinter tid
+
+Ændring på deepsleep funktionalitet:
+- Start deepsleep efter 10 sekunder af inaktivitet
+
+Refactor funktioner ud af main.rs til deres egne modulfiler:
+- deep_sleep.rs
+- ntp.rs
+- wifi.rs
+- button.rs
+- led.rs
+- lib.rs
+
+Implementering af MQTT broker:
+- Docker compose yaml fil
+- Username/password Authentication
+- .env med username/password konfiguration
+- TLS encryption
+
+Løbende opdatering på README.md
+- Wifi setup
+- MQTT broker setup
 
 === Hans
 Implementering af button debounce og integration af WiFi funktionalitet:

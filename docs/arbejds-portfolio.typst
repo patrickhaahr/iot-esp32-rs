@@ -32,14 +32,36 @@ Dette giver os fordelene ved Rusts hukommelsessikkerhed kombineret med direkte a
 og biblioteker, der er målrettet netop denne platform.
 
 == NTP
+Efter WiFi var implementeret, så det var tid til at implementere NTP.
+Satte til at bruge Danmarks NTP server (dk.pool.ntp.org) og lavede offset logik til sommer og vinter tid.
 
 == MQTT
+Hvordan sætte MQTT broker op med TLS? Der var flere tanker om dette: 
+Egen domain, så TLS er automatisk tilgængelig.
+Reverse proxy med certbot og letsencrypt - nginx eller caddy?
+Det viser sig at eclipse-mosquitto image har sin egen TLS konfiguration og den brugte vi for at gøre det simpelt.
+Skulle generate certs og keys med openssl, og så konfigurere mosquitto til at bruge dem.
+Satte en nem MQTT broker op med docker compose.
 
 == WIFI
+Skulle vælge mellem esp-wifi og esp-radio. Endte med esp-radio, da det understøtte bedre esp-hal version vi er på.
+For at nemt skifte WiFi SSID og password (og gøre det sikkert - ikke hardcode i source code), så satte vi WiFi config i .env fil.
+I build.rs skulle der blive loaded ind contents fra .env fil.
 
 == Debounce
 
-== DeepSleep
-Der er allerede implementeret simpelt deepsleep funktionalitet, men ikke fuldendt til projektets behov.
+== Deep sleep
+Der skulle omkonfigureres på knappernes porte, så de brugte RTC GPIOs til at være kompatibelt med deepsleep.
+Deep sleep bliver aktiveret når enheden (ESP32) er inatkiv i mere end 10 sekunder.
 
-== TLS
+== Kredsløbsdiagram
+
+#figure(
+  image("fritzing.png", width: 80%),
+  caption: [Fritzing kredsløbsdiagram]
+)
+
+#figure(
+  image("image.png", width: 80%),
+  caption: [Projekt billede]
+)

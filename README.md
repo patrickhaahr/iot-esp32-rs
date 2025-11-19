@@ -1,6 +1,23 @@
 # IoT ESP32 Rust Project
 
-A Rust-based embedded project for the ESP32 using `esp-hal`.
+![Fritzing Circuit Diagram](docs/fritzing.png)
+
+A Rust-based embedded feedback panel for the ESP32 using `esp-hal`. This project implements a smiley feedback system with 4 buttons and corresponding LEDs that publishes ratings to an MQTT broker.
+
+## Features
+
+- **4 Buttons with 4 LEDs** - Smiley feedback panel with ratings:
+  - Button 1: Very Happy (Green LED)
+  - Button 2: Happy (Yellow LED)
+  - Button 3: Neutral (Blue LED)
+  - Button 4: Sad (Red LED)
+- **Wi-Fi Connectivity** - Connects to Wi-Fi using WPA2 authentication with credentials stored in `.env` file
+- **MQTT with Authentication** - Publishes button press events with JSON payloads including timestamps and ratings
+- **NTP Time Synchronization** - Syncs with Denmark NTP server (`dk.pool.ntp.org`) with Copenhagen timezone support
+- **Button Debouncing** - Software debounce (50ms) prevents false triggers from button bounce
+- **Deep Sleep Mode** - Power-saving deep sleep after 10 seconds of inactivity with EXT1 GPIO wakeup
+- **LED Feedback** - Visual confirmation with 500ms LED display on button press
+- **RTC GPIO Wake** - Uses RTC-capable pins (GPIO25, GPIO26, GPIO27, GPIO32) for deep sleep wakeup
 
 ## Development
 
