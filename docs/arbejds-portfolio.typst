@@ -58,8 +58,8 @@ Deep sleep bliver aktiveret når enheden (ESP32) er inatkiv i mere end 10 sekund
 TLS har været SUPER SVÆRT at implementere. Prøvet adskillige libaries og refactor fra esp-hal til esp-idf-hal, som er community driven der inkludere std, som der ikke gør i bare-metal esp-hal.
 Prøvet embedded-tls - virkede ikke for os.
 Prøvet esp-mbedtls - virkede heller ikke.
-Skulle fork esp-mbedtls og ret i koden så den er mere kompatibelt med vores hardware og software versioner.
-Bruger insecure TLS, der er stadig kryptering, men esp32 sammenligner ikke certs med MQTT broker.
+Skulle fork esp-mbedtls og ret i koden så den er mere kompatibelt med vores hardware og software versioner. - Den skulle ikke depend på esp-wifi.
+Secure TLS 1.3 kryptering med esp32 certs verifikation.
 Det lykkedes til sidst.
 
 == Kredsløbsdiagram

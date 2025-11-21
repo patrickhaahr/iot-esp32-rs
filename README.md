@@ -25,6 +25,18 @@ A Rust-based embedded feedback panel for the ESP32 using `esp-hal`. This project
 
 ## Development
 
+### Prerequisites
+
+Make sure to have esp-rs dependencies installed. Follow the official documentation: https://docs.espressif.com/projects/rust/book/getting-started/toolchain.html
+
+For Xtensa Devices:
+
+```sh
+cargo install espup --locked
+cargo install esp-generate --locked
+cargo install espflash --locked
+```
+
 ### Environment Configuration
 
 Copy the example environment file and configure your settings:
@@ -41,14 +53,6 @@ WIFI_PASSWORD=your_wifi_password
 MQTT_BROKER_IP=192.168.8.222
 MQTT_USERNAME=your_mqtt_username
 MQTT_PASSWORD=your_mqtt_password
-```
-
-### Build and Flash
-
-To build, upload the code, and monitor the ESP32 serial output:
-
-```sh
-cargo run --release
 ```
 
 ## MQTT Broker Setup
@@ -120,6 +124,14 @@ You should see the message appear in Terminal 1.
 
 ```sh
 docker compose logs -f
+```
+
+## Build and Flash
+
+To build, upload the code, and monitor the ESP32 serial output:
+
+```sh
+cargo run --release
 ```
 
 ## Documentation
