@@ -192,7 +192,7 @@ pub fn publish_button_feedback<'a, 'd>(
             match Session::new(
                 stream,
                 Mode::Client { servername: c"" }, // Empty hostname to skip CN check, but verify signature
-                TlsVersion::Tls1_2,
+                TlsVersion::Tls1_3,
                 certificates,
                 tls_ref,
             ) {
