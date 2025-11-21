@@ -1,13 +1,10 @@
 services:
   mosquitto:
-    image: eclipse-mosquitto:2
+    image: eclipse-mosquitto
+    container_name: mosquitto
     ports:
-      - "8883:8883"  # MQTTS (TLS)
-      - "1883:1883"  # Plain MQTT (local testing only)
-      - "1884:1884"  # Plain MQTT (network - for ESP32)
+      - "1883:1883"
+      - "8883:8883"
     volumes:
       - ./mosquitto/config:/mosquitto/config
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
-      - ./mosquitto/certs:/mosquitto/certs
     restart: unless-stopped

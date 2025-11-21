@@ -3,17 +3,19 @@
 //! Provides Simple Network Time Protocol (SNTP) client functionality
 //! to synchronize time from NTP servers using smoltcp.
 
+extern crate alloc;
+use alloc::vec;
 use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use esp_hal::delay::Delay;
-use esp_radio::wifi::WifiDevice;
+use esp_wifi::wifi::WifiDevice;
 use log::info;
 use smoltcp::iface::{Interface, SocketSet};
 use smoltcp::socket::dhcpv4;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{IpCidr, IpEndpoint, Ipv4Address};
-use sntpc::{NtpContext, NtpTimestampGenerator};
+use sntpc::NtpTimestampGenerator;
 
 /// Copenhagen timezone offset in seconds (UTC+1 for CET)
 pub const COPENHAGEN_OFFSET_SECS: i64 = 3600;
@@ -114,16 +116,13 @@ pub fn get_ntp_server_addr() -> SocketAddr {
 pub fn setup_network_interface(
     iface: &mut Interface,
     device: &mut WifiDevice<'_>,
+    sockets: &mut SocketSet,
 ) -> Result<Ipv4Address, &'static str> {
     info!("Network: Starting DHCP configuration...");
     let delay = Delay::new();
 
     // Create DHCP socket
     let dhcp_socket = dhcpv4::Socket::new();
-
-    // Socket set
-    let mut sockets_storage: [_; 1] = Default::default();
-    let mut sockets = SocketSet::new(&mut sockets_storage[..]);
     let dhcp_handle = sockets.add(dhcp_socket);
 
     // Wait for DHCP to get an IP address
@@ -133,7 +132,7 @@ pub fn setup_network_interface(
 
     while !got_ip && timeout_counter < 100 {
         let timestamp = Instant::from_millis(timeout_counter as i64 * 100);
-        iface.poll(timestamp, device, &mut sockets);
+        iface.poll(timestamp, device, sockets);
 
         let dhcp_socket = sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
         if let Some(dhcpv4::Event::Configured(config)) = dhcp_socket.poll() {
@@ -159,6 +158,8 @@ pub fn setup_network_interface(
         timeout_counter += 1;
     }
 
+    sockets.remove(dhcp_handle);
+
     if !got_ip {
         return Err("DHCP timeout - failed to obtain IP address");
     }
@@ -173,8 +174,12 @@ pub fn setup_network_interface(
 pub fn sync_time_with_device(
     iface: &mut Interface,
     device: &mut WifiDevice<'_>,
+    sockets: &mut SocketSet,
 ) -> Result<NtpTime, &'static str> {
-    info!("NTP: Starting time synchronization with {}", DENMARK_NTP_SERVER);
+    info!(
+        "NTP: Starting time synchronization with {}",
+        DENMARK_NTP_SERVER
+    );
 
     let delay = Delay::new();
 
@@ -191,21 +196,11 @@ pub fn sync_time_with_device(
 
     info!("NTP: Using IP address: {}", our_ip);
 
-    // Create socket storage
-    let mut udp_rx_buffer = [0u8; 256];
-    let mut udp_tx_buffer = [0u8; 256];
-    let mut udp_rx_meta = [udp::PacketMetadata::EMPTY; 4];
-    let mut udp_tx_meta = [udp::PacketMetadata::EMPTY; 4];
+    // Create UDP socket with owned buffers
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0u8; 256]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0u8; 256]);
 
-    // Create UDP socket
-    let udp_socket = udp::Socket::new(
-        udp::PacketBuffer::new(&mut udp_rx_meta[..], &mut udp_rx_buffer[..]),
-        udp::PacketBuffer::new(&mut udp_tx_meta[..], &mut udp_tx_buffer[..]),
-    );
-
-    // Socket set
-    let mut sockets_storage: [_; 1] = Default::default();
-    let mut sockets = SocketSet::new(&mut sockets_storage[..]);
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
     let udp_handle = sockets.add(udp_socket);
 
     // Send NTP request
@@ -218,26 +213,28 @@ pub fn sync_time_with_device(
     let server_endpoint = IpEndpoint::new(server_addr.into(), NTP_PORT);
 
     // Bind UDP socket to local port
-    let udp_socket = sockets.get_mut::<udp::Socket>(udp_handle);
-    udp_socket
-        .bind(IpEndpoint::new(our_ip.into(), 12345))
-        .map_err(|_| "Failed to bind UDP socket")?;
+    {
+        let udp_socket = sockets.get_mut::<udp::Socket>(udp_handle);
+        udp_socket
+            .bind(IpEndpoint::new(our_ip.into(), 12345))
+            .map_err(|_| "Failed to bind UDP socket")?;
 
-    // Create NTP request packet (simplified SNTP v4 request)
-    let mut ntp_request = [0u8; 48];
-    // LI = 0 (no warning), VN = 4 (SNTPv4), Mode = 3 (client)
-    ntp_request[0] = 0b00_100_011; // LI=0, VN=4, Mode=3
+        // Create NTP request packet (simplified SNTP v4 request)
+        let mut ntp_request = [0u8; 48];
+        // LI = 0 (no warning), VN = 4 (SNTPv4), Mode = 3 (client)
+        ntp_request[0] = 0b00_100_011; // LI=0, VN=4, Mode=3
 
-    // Send NTP request
-    info!("NTP: Sending request to {}:{}", server_addr, NTP_PORT);
-    udp_socket
-        .send_slice(&ntp_request, server_endpoint)
-        .map_err(|_| "Failed to send NTP request")?;
+        // Send NTP request
+        info!("NTP: Sending request to {}:{}", server_addr, NTP_PORT);
+        udp_socket
+            .send_slice(&ntp_request, server_endpoint)
+            .map_err(|_| "Failed to send NTP request")?;
+    }
 
     // Poll to actually send the packet
     let mut poll_counter = 0u32;
     let timestamp = Instant::from_millis(poll_counter as i64 * 50);
-    iface.poll(timestamp, device, &mut sockets);
+    iface.poll(timestamp, device, sockets);
     poll_counter += 1;
 
     // Wait for response
@@ -247,15 +244,16 @@ pub fn sync_time_with_device(
 
     while !got_response && poll_counter < 100 {
         let timestamp = Instant::from_millis(poll_counter as i64 * 50);
-        iface.poll(timestamp, device, &mut sockets);
+        iface.poll(timestamp, device, sockets);
 
         let udp_socket = sockets.get_mut::<udp::Socket>(udp_handle);
-        if udp_socket.can_recv()
-            && let Ok((size, _endpoint)) = udp_socket.recv_slice(&mut ntp_response)
-            && size >= 48
-        {
-            got_response = true;
-            info!("NTP: Received {} bytes", size);
+        if udp_socket.can_recv() {
+            if let Ok((size, _endpoint)) = udp_socket.recv_slice(&mut ntp_response) {
+                if size >= 48 {
+                    got_response = true;
+                    info!("NTP: Received {} bytes", size);
+                }
+            }
         }
 
         if !got_response {
@@ -263,6 +261,8 @@ pub fn sync_time_with_device(
             poll_counter += 1;
         }
     }
+
+    sockets.remove(udp_handle);
 
     if !got_response {
         return Err("NTP response timeout");
@@ -291,10 +291,7 @@ pub fn sync_time_with_device(
     // Convert fraction to microseconds
     let microseconds = ((ntp_fraction as u64 * 1_000_000) >> 32) as u32;
 
-    info!(
-        "NTP: Sync successful! Unix timestamp: {}",
-        unix_timestamp
-    );
+    info!("NTP: Sync successful! Unix timestamp: {}", unix_timestamp);
 
     Ok(NtpTime {
         unix_timestamp,
@@ -302,19 +299,90 @@ pub fn sync_time_with_device(
     })
 }
 
-/// Synchronize time with NTP server (legacy placeholder)
-pub fn sync_time() -> Result<NtpTime, &'static str> {
-    info!("NTP: Starting time synchronization with {}", DENMARK_NTP_SERVER);
-
-    let server_addr = get_ntp_server_addr();
-    let _context = NtpContext::new(EspTimestampGenerator::new());
-
-    info!("NTP: Server address: {}:{}", server_addr.ip(), server_addr.port());
-
-    Err("Use sync_time_with_device() instead - requires WifiDevice")
-}
-
 /// Check if current date is in Copenhagen summer time (CEST)
 pub fn is_summer_time_approx(month: u8) -> bool {
     (4..=9).contains(&month)
+}
+
+/// Format Unix timestamp to human-readable datetime string
+/// Returns format: "YYYY-MM-DD HH:MM:SS TZ"
+/// Example: "2025-11-21 14:32:20 CET"
+pub fn format_datetime(unix_timestamp: u64, is_summer_time: bool) -> heapless::String<32> {
+    use heapless::String;
+
+    // Convert to Copenhagen timezone
+    let offset_secs = if is_summer_time {
+        COPENHAGEN_SUMMER_OFFSET_SECS
+    } else {
+        COPENHAGEN_OFFSET_SECS
+    };
+    let local_ts = unix_timestamp.wrapping_add(offset_secs as u64);
+
+    // Calculate date components
+    // Days since Unix epoch (1970-01-01)
+    let days_since_epoch = local_ts / 86400;
+
+    // Simple algorithm to get year, month, day from days since epoch
+    // Starting from 1970-01-01
+    let mut year = 1970u32;
+    let mut remaining_days = days_since_epoch as u32;
+
+    // Calculate year
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days >= days_in_year {
+            remaining_days -= days_in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Calculate month and day
+    let (month, day) = days_to_month_day(remaining_days, is_leap_year(year));
+
+    // Calculate time components
+    let time_of_day = local_ts % 86400;
+    let hours = (time_of_day / 3600) as u8;
+    let minutes = ((time_of_day % 3600) / 60) as u8;
+    let seconds = (time_of_day % 60) as u8;
+
+    // Timezone string
+    let tz = if is_summer_time { "CEST" } else { "CET" };
+
+    // Format: "YYYY-MM-DD HH:MM:SS TZ"
+    let mut result = String::new();
+    use core::fmt::Write;
+    let _ = write!(
+        &mut result,
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} {}",
+        year, month, day, hours, minutes, seconds, tz
+    );
+
+    result
+}
+
+/// Check if a year is a leap year
+fn is_leap_year(year: u32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Convert day of year to month and day
+fn days_to_month_day(day_of_year: u32, is_leap: bool) -> (u8, u8) {
+    let days_in_months = if is_leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut remaining = day_of_year;
+    for (month_idx, &days) in days_in_months.iter().enumerate() {
+        if remaining < days {
+            return ((month_idx + 1) as u8, (remaining + 1) as u8);
+        }
+        remaining -= days;
+    }
+
+    // Should not reach here, but return last day of year as fallback
+    (12, 31)
 }

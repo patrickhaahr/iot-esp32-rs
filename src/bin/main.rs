@@ -1,10 +1,5 @@
 #![no_std]
 #![no_main]
-#![deny(
-    clippy::mem_forget,
-    reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
-    holding buffers for the duration of a data transfer."
-)]
 
 extern crate alloc;
 
@@ -13,16 +8,19 @@ use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, InputConfig, Output, OutputConfig, Pull, RtcPin};
 use esp_hal::main;
-use esp_hal::rtc_cntl::{reset_reason, wakeup_cause, Rtc, SocResetReason};
+use esp_hal::rng::Rng;
+use esp_hal::rtc_cntl::{Rtc, SocResetReason, reset_reason, wakeup_cause};
 use esp_hal::system::Cpu;
 use esp_hal::timer::timg::TimerGroup;
-use log::info;
+use log::{info, LevelFilter};
+
+use esp_wifi::init;
 
 use my_esp_project::button::ButtonState;
 use my_esp_project::deep_sleep::{
-    self, clear_ext1_wakeup_status, decode_wake_gpios, read_ext1_wakeup_status, SLEEP_DELAY_MS,
+    self, SLEEP_DELAY_MS, clear_ext1_wakeup_status, decode_wake_gpios, read_ext1_wakeup_status,
 };
-use my_esp_project::led::{LedActivityState, LED_DISPLAY_MS};
+use my_esp_project::led::{LED_DISPLAY_MS, LedActivityState};
 use my_esp_project::mqtt;
 use my_esp_project::ntp;
 use my_esp_project::wifi::{self, WifiCredentials};
@@ -108,9 +106,10 @@ fn main() -> ! {
     let ext1_status_on_wake = read_ext1_wakeup_status();
 
     // Initialize heap allocator (required for WiFi)
-    esp_alloc::heap_allocator!(size: 72 * 1024);
+    esp_alloc::heap_allocator!(size: 120 * 1024);
 
     esp_println::logger::init_logger_from_env();
+    log::set_max_level(LevelFilter::Info);
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -126,14 +125,15 @@ fn main() -> ! {
     info!("Reset reason: {:?}", reset_rsn);
     info!("Wake reason: {:?}", wake_rsn);
 
-    // Initialize timer for RTOS scheduler
+    // Initialize timer for WiFi
     let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let rng = Rng::new(peripherals.RNG);
 
-    // Start the RTOS scheduler (required for WiFi)
-    esp_rtos::start(timg0.timer0);
+    // Initialize ESP-WiFi
+    let init = init(timg0.timer0, rng).unwrap();
 
-    // Initialize esp-radio
-    let radio_controller = esp_radio::init().unwrap();
+    let (mut wifi_controller, interfaces) = esp_wifi::wifi::new(&init, peripherals.WIFI).unwrap();
+    let mut wifi_device = interfaces.sta;
 
     // Connect to WiFi
     let credentials = WifiCredentials {
@@ -141,25 +141,27 @@ fn main() -> ! {
         password: WIFI_PASSWORD,
     };
 
-    let (_wifi_controller, mut interfaces) =
-        wifi::connect(&radio_controller, peripherals.WIFI, &credentials)
-            .expect("Failed to connect to WiFi");
+    wifi::connect(&mut wifi_controller, &mut wifi_device, &credentials)
+        .expect("Failed to connect to WiFi");
 
     info!("WiFi connection established!");
 
     // Create smoltcp interface for networking
-    use smoltcp::iface::{Config, Interface};
+    use smoltcp::iface::{Config, Interface, SocketSet, SocketStorage};
     use smoltcp::time::Instant;
     use smoltcp::wire::EthernetAddress;
 
-    let mac_addr = interfaces.sta.mac_address();
+    let mac_addr = wifi_device.mac_address();
     let hardware_addr = EthernetAddress(mac_addr);
     let config = Config::new(hardware_addr.into());
-    let mut iface = Interface::new(config, &mut interfaces.sta, Instant::from_millis(0));
+    let mut iface = Interface::new(config, &mut wifi_device, Instant::from_millis(0));
+
+    let mut socket_set_entries: [SocketStorage; 4] = Default::default();
+    let mut sockets = SocketSet::new(&mut socket_set_entries[..]);
 
     // Setup network interface with DHCP (do this ONCE)
     info!("Setting up network interface with DHCP...");
-    match ntp::setup_network_interface(&mut iface, &mut interfaces.sta) {
+    match ntp::setup_network_interface(&mut iface, &mut wifi_device, &mut sockets) {
         Ok(ip) => info!("Network configured with IP: {}", ip),
         Err(e) => {
             info!("DHCP failed: {}", e);
@@ -167,9 +169,18 @@ fn main() -> ! {
         }
     }
 
+    // Initialize TLS
+    // We create one instance of Tls
+    // Initialize SHA and RSA peripherals if needed by Tls
+    // Note: Add 'mut' keyword when uncommenting set_debug() below
+    let tls = esp_mbedtls::Tls::new().unwrap();
+    // let mut tls = esp_mbedtls::Tls::new().unwrap();
+    // tls.set_debug(4);
+
     // Attempt NTP time synchronization
     info!("Attempting NTP time synchronization...");
-    let current_time = match ntp::sync_time_with_device(&mut iface, &mut interfaces.sta) {
+    let current_time = match ntp::sync_time_with_device(&mut iface, &mut wifi_device, &mut sockets)
+    {
         Ok(time) => {
             let (h, m, s) = time.to_copenhagen_hms(false); // Use CET (winter time)
             info!(
@@ -246,10 +257,13 @@ fn main() -> ! {
             // Fallback to checking live state if register was empty
             Some((0, &mut green_led, "Button 1 (Very Happy/GREEN)"))
         } else if button2.is_high() {
+            // Fallback to checking live state if register was empty
             Some((1, &mut yellow_led, "Button 2 (Happy/YELLOW)"))
         } else if button3.is_high() {
+            // Fallback to checking live state if register was empty
             Some((2, &mut blue_led, "Button 3 (Neutral/BLUE)"))
         } else if button4.is_high() {
+            // Fallback to checking live state if register was empty
             Some((3, &mut red_led, "Button 4 (Sad/RED)"))
         } else {
             info!("Wake from timer or unknown source");
@@ -271,10 +285,12 @@ fn main() -> ! {
 
                 match mqtt::publish_button_feedback(
                     &mut iface,
-                    &mut interfaces.sta,
+                    &mut wifi_device,
+                    &mut sockets,
                     button_number,
                     time.unix_timestamp,
                     "esp32-smiley-001",
+                    tls.reference(),
                 ) {
                     Ok(_) => info!("MQTT: Feedback published successfully"),
                     Err(e) => info!("MQTT: Failed to publish feedback: {}", e),
@@ -341,12 +357,31 @@ fn main() -> ! {
                         button_number, time.unix_timestamp
                     );
 
+                    // We need to re-borrow components from the main scope for each call
+                    // Since we are in a loop, we can't just move them.
+                    // But the publish_button_feedback function takes mutable references, which is fine
+                    // as long as we don't hold onto them across iterations in a way the borrow checker dislikes.
+                    // The issue previously was reusing `iface` etc which were borrowed mutably in previous iteration?
+                    // No, `publish_button_feedback` finishes, so borrows should end.
+                    //
+                    // The previous error was:
+                    // `iface` was mutably borrowed here in the previous iteration of the loop
+                    //
+                    // This happens if the lifetime 'a of the mutable borrow is inferred to be longer than the loop body.
+                    //
+                    // publish_button_feedback<'a, 'd>(..., sockets: &'a mut SocketSet<'a>, ...)
+                    // The signature requires `sockets` to live for 'a, AND it borrows `sockets` for 'a.
+                    // This effectively locks `sockets` for its entire lifetime.
+                    // We need to fix the signature in mqtt.rs to allow re-borrowing.
+
                     match mqtt::publish_button_feedback(
                         &mut iface,
-                        &mut interfaces.sta,
+                        &mut wifi_device,
+                        &mut sockets,
                         button_number,
                         time.unix_timestamp,
                         "esp32-smiley-001",
+                        tls.reference(),
                     ) {
                         Ok(_) => info!("MQTT: Feedback published successfully"),
                         Err(e) => info!("MQTT: Failed to publish feedback: {}", e),

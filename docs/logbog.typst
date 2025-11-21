@@ -60,14 +60,14 @@ Implementering af button debounce og integration af WiFi funktionalitet:
 == 3. Dag (20-11-2025)
 
 === Patrick
-Test og verifikation af MQTT funktionalitet:
-- Kørsel af systemet med cargo run --release
-- Verificering af WiFi forbindelse
-- Test af alle 4 buttons med MQTT publishing
-- Bekræftelse af NTP tid synkronisering
-- Verificering af deep sleep wakeup funktionalitet
-- Dokumentering af TLS problematikker
-- Konklusion: Plain MQTT er funktionelt og pålideligt til projektet
+Refactor esp-radio til esp-wifi:
+- Kompatibelt med esp-mbedtls
+
+Refactor embedded-tls til esp-mbedtls:
+- Direkte kode eksempler velegnet til esp32
+- Bruger egen fork af esp-mbedtls
+- Implementeret TLS 1.3 kryptering
+- ESP32 validere certs mod TLS MQTT broker
 
 === Hans
 Implementering af MQTT client funktionalitet:
@@ -95,3 +95,13 @@ Funktionalitet verificeret:
 - Deep sleep med EXT1 wakeup fra alle GPIO pins
 - LED feedback på button presses
 - 100% success rate på MQTT publiceringer
+
+== 4. Dag (21-11-2025)
+
+=== Patrick 
+Fremvisning af projektet
+
+Rettelse på docs - logbog og arbejdsportfolio
+
+=== Hans
+Fremvisning af projektet
