@@ -171,8 +171,10 @@ fn main() -> ! {
     // Initialize TLS
     // We create one instance of Tls
     // Initialize SHA and RSA peripherals if needed by Tls
-    let mut tls = esp_mbedtls::Tls::new().unwrap();
-    tls.set_debug(4);
+    // Note: Add 'mut' keyword when uncommenting set_debug() below
+    let tls = esp_mbedtls::Tls::new().unwrap();
+    // let mut tls = esp_mbedtls::Tls::new().unwrap();
+    // tls.set_debug(4);
 
     // Attempt NTP time synchronization
     info!("Attempting NTP time synchronization...");
