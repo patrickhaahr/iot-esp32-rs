@@ -4,7 +4,7 @@
 
 ## Demo
 
-![Demo Video](./docs/video.mp4)
+![Demo Video](./docs/demo.gif)
 
 A Rust-based embedded feedback panel for the ESP32 using `esp-hal`. This project implements a smiley feedback system with 4 buttons and corresponding LEDs that publishes ratings to an MQTT broker.
 
