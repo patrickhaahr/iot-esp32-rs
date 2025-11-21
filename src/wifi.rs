@@ -1,11 +1,9 @@
 //! WiFi module for ESP32
 //!
-//! Provides WiFi initialization and connection management.
+//! Provides WiFi initialization and connection management using esp-wifi.
 
 use esp_hal::delay::Delay;
-use esp_hal::peripherals::WIFI;
-use esp_radio::wifi::{self, AuthMethod, ClientConfig, Config, Interfaces, ModeConfig, WifiController};
-use esp_radio::Controller;
+use esp_wifi::wifi::{AuthMethod, ClientConfiguration, Configuration, WifiController, WifiDevice};
 use log::info;
 
 /// WiFi credentials configuration
@@ -14,43 +12,35 @@ pub struct WifiCredentials<'a> {
     pub password: &'a str,
 }
 
-/// Initialize and connect to WiFi
+/// Connect to WiFi
 ///
-/// Returns the WifiController and Interfaces on success.
-pub fn connect<'d>(
-    radio_controller: &'d Controller<'d>,
-    wifi_peripheral: WIFI<'d>,
+/// Returns the WifiController and the interface device.
+pub fn connect<'a, 'd>(
+    controller: &'a mut WifiController<'d>,
+    _interfaces: &'a mut WifiDevice<'d>,
     credentials: &WifiCredentials,
-) -> Result<(WifiController<'d>, Interfaces<'d>), wifi::WifiError> {
+) -> Result<(), &'static str> {
     info!("Setting up WiFi...");
 
-    // Create WiFi controller
-    let (mut wifi_controller, interfaces) = wifi::new(
-        radio_controller,
-        wifi_peripheral,
-        Config::default(),
-    )?;
+    let client_config = Configuration::Client(ClientConfiguration {
+        ssid: credentials.ssid.try_into().unwrap(),
+        password: credentials.password.try_into().unwrap(),
+        auth_method: AuthMethod::WPA2Personal,
+        ..Default::default()
+    });
 
-    // Configure station mode with credentials
-    let client_config = ClientConfig::default()
-        .with_ssid(credentials.ssid.into())
-        .with_password(credentials.password.into())
-        .with_auth_method(AuthMethod::Wpa2Personal);
+    controller.set_configuration(&client_config).map_err(|_| "Failed to set config")?;
 
-    wifi_controller.set_config(&ModeConfig::Client(client_config))?;
-
-    // Start WiFi
-    wifi_controller.start()?;
+    controller.start().map_err(|_| "Failed to start WiFi")?;
     info!("WiFi started, connecting to '{}'...", credentials.ssid);
 
-    // Initiate connection
-    wifi_controller.connect()?;
+    controller.connect().map_err(|_| "Failed to connect")?;
 
     let delay = Delay::new();
 
     // Wait for connection
     loop {
-        match wifi_controller.is_connected() {
+        match controller.is_connected() {
             Ok(true) => {
                 info!("WiFi connected successfully!");
                 break;
@@ -66,5 +56,5 @@ pub fn connect<'d>(
         }
     }
 
-    Ok((wifi_controller, interfaces))
+    Ok(())
 }

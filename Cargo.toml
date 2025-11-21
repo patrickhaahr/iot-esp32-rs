@@ -9,36 +9,45 @@ name = "my-esp-project"
 path = "./src/bin/main.rs"
 
 [dependencies]
-esp-hal = { version = "1.0.0", features = ["esp32", "log-04", "unstable"] }
+esp-hal = { version = "=1.0.0-rc.0", features = ["esp32", "log-04", "unstable"] }
 embedded-hal = "1.0.0"
 
-
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32", "log-04"] }
-log                    = "0.4.27"
+log                    = "0.4.22"
 
-critical-section = "1.2.0"
-esp-backtrace = { version = "0.18.1", features = [
+critical-section = "1.1.2"
+esp-backtrace = { version = "0.16", features = [
   "esp32",
   "panic-handler",
   "println",
 ] }
-esp-println = { version = "0.16.1", features = ["esp32", "log-04"] }
-esp-radio = { version = "0.17.0", features = ["esp32", "wifi", "esp-alloc", "log-04", "smoltcp", "unstable"] }
-smoltcp = { version = "0.12.0", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "socket-dhcpv4", "socket-tcp"] }
-esp-rtos = { version = "0.2.0", features = ["esp32", "esp-radio", "esp-alloc"] }
-esp-alloc = "0.9.0"
+esp-println = { version = "0.14", features = ["esp32", "log-04"] }
+
+# Replaced esp-radio with esp-wifi and added esp-mbedtls
+esp-wifi = { version = "0.15.0", features = ["esp32", "wifi", "esp-alloc", "log-04", "smoltcp"] }
+smoltcp = { version = "0.12.0", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "socket-dhcpv4", "socket-tcp", "alloc"] }
+esp-alloc = "0.8.0"
 sntpc = { version = "0.6.1", default-features = false, features = ["sync"] }
-heapless = "0.9"
-embedded-tls = { version = "0.17.0", default-features = false }
+heapless = "0.8"
 embedded-io = "0.6"
-embedded-io-async = "0.6"
+embedded-io-async = "0.6.1"
 rand_core = "0.6"
+
+# Git dependency
+esp-mbedtls = { git = "https://github.com/patrickhaahr/esp-mbedtls", features = ["esp32"] }
+#esp-mbedtls = { path = "esp-mbedtls/esp-mbedtls", features = ["esp32"] }
 
 
 [profile.dev]
 # Rust debug is too slow.
 # For debug builds always builds with some optimization
 opt-level = "s"
+
+[profile.dev.package.esp-wifi]
+opt-level = 3
+
+[profile.dev.package.esp-mbedtls]
+opt-level = 3
 
 [profile.release]
 codegen-units    = 1     # LLVM can perform better optimizations using a single thread
@@ -48,3 +57,6 @@ incremental      = false
 lto              = 'fat'
 opt-level        = 's'
 overflow-checks  = false
+
+[profile.release.package.esp-wifi]
+opt-level = 3
