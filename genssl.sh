@@ -1,15 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Load MQTT_BROKER_IP from .env file
 if [ -f ".env" ]; then
-    export $(grep "^MQTT_BROKER_IP" .env | xargs)
+  export $(grep "^MQTT_BROKER_IP" .env | xargs)
 else
-    echo "Error: .env file not found. Please create .env with MQTT_BROKER_IP."
-    exit 1
+  echo "Error: .env file not found. Please create .env with MQTT_BROKER_IP."
+  exit 1
 fi
 
 # Default IP if not set
-MQTT_BROKER_IP="${MQTT_BROKER_IP:-192.168.8.222}"
+MQTT_BROKER_IP="${MQTT_BROKER_IP}"
 
 mkdir -p mosquitto/certs
 cd mosquitto/certs

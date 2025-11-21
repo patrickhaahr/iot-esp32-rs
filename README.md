@@ -2,6 +2,10 @@
 
 ![Fritzing Circuit Diagram](docs/fritzing.png)
 
+## Demo
+
+![Demo Video](./docs/video.mp4)
+
 A Rust-based embedded feedback panel for the ESP32 using `esp-hal`. This project implements a smiley feedback system with 4 buttons and corresponding LEDs that publishes ratings to an MQTT broker.
 
 ## Features
@@ -12,7 +16,7 @@ A Rust-based embedded feedback panel for the ESP32 using `esp-hal`. This project
   - Button 3: Neutral (Blue LED)
   - Button 4: Sad (Red LED)
 - **Wi-Fi Connectivity** - Connects to Wi-Fi using WPA2 authentication with credentials stored in `.env` file
-- **MQTT with Authentication** - Publishes button press events with JSON payloads including timestamps and ratings
+- **MQTT with TLS 1.3 Encryption and Authentication** - Publishes button press events with JSON payloads including timestamps and emotions
 - **NTP Time Synchronization** - Syncs with Denmark NTP server (`dk.pool.ntp.org`) with Copenhagen timezone support
 - **Button Debouncing** - Software debounce (50ms) prevents false triggers from button bounce
 - **Deep Sleep Mode** - Power-saving deep sleep after 10 seconds of inactivity with EXT1 GPIO wakeup
@@ -21,19 +25,22 @@ A Rust-based embedded feedback panel for the ESP32 using `esp-hal`. This project
 
 ## Development
 
-### Wi-Fi Configuration
+### Environment Configuration
 
-Copy the example environment file and configure your Wi-Fi credentials:
+Copy the example environment file and configure your settings:
 
 ```sh
 cp .env.example .env
 ```
 
-Edit `.env` with your Wi-Fi network details:
+Edit `.env` with your network and MQTT details:
 
 ```
 WIFI_SSID=your_wifi_network_name
 WIFI_PASSWORD=your_wifi_password
+MQTT_BROKER_IP=192.168.8.222
+MQTT_USERNAME=your_mqtt_username
+MQTT_PASSWORD=your_mqtt_password
 ```
 
 ### Build and Flash
@@ -54,24 +61,22 @@ The project includes a local MQTT broker (Mosquitto) with TLS support using Dock
 
 ### Generate TLS Certificates
 
-Generate self-signed certificates for secure MQTT communication:
+Generate self-signed certificates for secure MQTT communication from the project root:
 
 ```sh
-cd mosquitto/certs
-./generate-certs.sh
-cd ../..
+./genssl.sh
 ```
 
 This creates:
-- `ca.crt` - CA certificate (needed by ESP32 client)
-- `server.crt` / `server.key` - Server certificate and key
+- `mosquitto/certs/ca.crt` - CA certificate (needed by ESP32 client)
+- `mosquitto/certs/server.crt` / `server.key` - Server certificate and key
 
-### Create MQTT User
+### Set MQTT Credentials
 
 Create a password file with your MQTT credentials:
 
 ```sh
-docker run -it --rm -v ./mosquitto/config:/mosquitto/config eclipse-mosquitto mosquitto_passwd -c /mosquitto/config/passwd your_username
+docker run -it --rm -v ./mosquitto/config:/mosquitto/config eclipse-mosquitto mosquitto_passwd -c /mosquitto/config/password_file your_username
 ```
 
 Replace `your_username` with your desired username. You'll be prompted to enter a password.
@@ -81,12 +86,6 @@ Replace `your_username` with your desired username. You'll be prompted to enter 
 ```
 MQTT_USERNAME=your_username
 MQTT_PASSWORD=your_password
-```
-
-To add additional users (without `-c` flag to avoid overwriting):
-
-```sh
-docker run -it --rm -v ./mosquitto/config:/mosquitto/config eclipse-mosquitto mosquitto_passwd /mosquitto/config/passwd another_user
 ```
 
 ### Start the MQTT Broker
@@ -103,19 +102,19 @@ The broker will be available on:
 
 ### Testing the Connection
 
-**Terminal 1 - Subscribe to a topic:**
+**Terminal 1 - Subscribe to feedback topic:**
+
 ```sh
-mosquitto_sub -h localhost -p 8883 --cafile mosquitto/certs/ca.crt --insecure -u your_username -P your_password -t "test"
+mosquitto_sub -h 192.168.8.222 -p 8883 --cafile mosquitto/config/certs/ca.crt -u elev1 -P password -t "esp32/feedback" -v
 ```
 
-**Terminal 2 - Publish a message:**
+**Terminal 2 - Publish a test message:**
+
 ```sh
-mosquitto_pub -h localhost -p 8883 --cafile mosquitto/certs/ca.crt --insecure -u your_username -P your_password -t "test" -m "hello"
+mosquitto_pub -h 192.168.8.222 -p 8883 --cafile mosquitto/config/certs/ca.crt -u elev1 -P password -t "esp32/feedback" -m "test message"
 ```
 
-Replace `your_username` and `your_password` with the credentials you created.
-
-You should see "hello" appear in Terminal 1.
+You should see the message appear in Terminal 1.
 
 ### View Broker Logs
 

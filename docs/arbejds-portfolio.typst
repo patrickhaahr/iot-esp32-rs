@@ -54,14 +54,27 @@ I build.rs skulle der blive loaded ind contents fra .env fil.
 Der skulle omkonfigureres på knappernes porte, så de brugte RTC GPIOs til at være kompatibelt med deepsleep.
 Deep sleep bliver aktiveret når enheden (ESP32) er inatkiv i mere end 10 sekunder.
 
+== TLS
+TLS har været SUPER SVÆRT at implementere. Prøvet adskillige libaries og refactor fra esp-hal til esp-idf-hal, som er community driven der inkludere std, som der ikke gør i bare-metal esp-hal.
+Prøvet embedded-tls - virkede ikke for os.
+Prøvet esp-mbedtls - virkede heller ikke.
+Skulle fork esp-mbedtls og ret i koden så den er mere kompatibelt med vores hardware og software versioner.
+Bruger insecure TLS, der er stadig kryptering, men esp32 sammenligner ikke certs med MQTT broker.
+Det lykkedes til sidst.
+
 == Kredsløbsdiagram
 
 #figure(
-  image("fritzing.png", width: 80%),
+  image("fritzing.png", width: 100%),
   caption: [Fritzing kredsløbsdiagram]
 )
 
 #figure(
   image("image.png", width: 80%),
+  caption: [Projekt billede]
+)
+
+#figure(
+  image("esp32-smiley-feedback-panel.jpg", width: 80%),
   caption: [Projekt billede]
 )

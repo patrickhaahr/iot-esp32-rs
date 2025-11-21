@@ -56,3 +56,42 @@ Implementering af button debounce og integration af WiFi funktionalitet:
 - Integration af 4 buttons, 4 LEDs, WiFi connectivity og deep sleep
 - EXT1 wakeup konfiguration fra alle 4 RTC GPIO pins
 - WiFi SSID/password fejlfinding: rettet anførselstegn i .env fil
+
+== 3. Dag (20-11-2025)
+
+=== Patrick
+Refactor esp-radio til esp-wifi:
+- Kompatibelt med esp-mbedtls
+
+Refactor embedded-tls til esp-mbedtls:
+- Direkte kode eksempler velegnet til esp32
+- Bruger egen fork af esp-mbedtls
+- Implementeret TLS 1.3 kryptering
+- ESP32 tjekker IKKE om at certs er valide
+
+=== Hans
+Implementering af MQTT client funktionalitet:
+- Custom MQTT 3.1.1 protokol implementation i ren Rust (no_std)
+- Brug af smoltcp TCP sockets til netværkskommunikation
+- MQTT CONNECT med username/password authentication
+- MQTT PUBLISH med QoS 1 (at-least-once delivery)
+- JSON payload format: {"button":X,"timestamp":UNIX,"rating":"emoji"}
+- MQTT DISCONNECT og TCP socket cleanup
+- Placering på port 1884 (plain MQTT uden TLS)
+
+TLS udfordringer og debugging:
+- Forsøg med ESP-IDF framework og mbedTLS
+- Mosquitto broker TLS problem: connection EOF error (-0x7280)
+- SSH debugging i Mosquitto Docker container
+- Skift til HiveMQ broker som alternativ
+- HiveMQ JKS keystore konfiguration
+- Konstatering: HiveMQ præsenterede ikke TLS certifikat korrekt
+- Beslutning: Plain MQTT er tilstrækkeligt for uddannelsesprojekt
+
+Funktionalitet verificeret:
+- WiFi forbindelse fungerer stabilt
+- NTP tid synkronisering med dk.pool.ntp.org
+- Alle 4 knapper publisher korrekt til MQTT broker
+- Deep sleep med EXT1 wakeup fra alle GPIO pins
+- LED feedback på button presses
+- 100% success rate på MQTT publiceringer
