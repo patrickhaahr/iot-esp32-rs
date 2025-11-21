@@ -67,7 +67,7 @@ Refactor embedded-tls til esp-mbedtls:
 - Direkte kode eksempler velegnet til esp32
 - Bruger egen fork af esp-mbedtls
 - Implementeret TLS 1.3 kryptering
-- ESP32 validere certs med TLS MQTT broker
+- ESP32 validere certs mod TLS MQTT broker
 
 === Hans
 Implementering af MQTT client funktionalitet:
