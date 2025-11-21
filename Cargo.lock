@@ -1093,6 +1093,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp32-mqtt-rs"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "embedded-hal 1.0.0",
+ "embedded-io",
+ "embedded-io-async",
+ "esp-alloc",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-mbedtls",
+ "esp-println",
+ "esp-wifi",
+ "heapless",
+ "log",
+ "rand_core 0.6.4",
+ "serde",
+ "serde-json-core",
+ "smoltcp",
+ "sntpc",
+]
+
+[[package]]
 name = "esp32c2"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1593,30 +1617,6 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
-name = "my-esp-project"
-version = "0.1.0"
-dependencies = [
- "critical-section",
- "embedded-hal 1.0.0",
- "embedded-io",
- "embedded-io-async",
- "esp-alloc",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-mbedtls",
- "esp-println",
- "esp-wifi",
- "heapless",
- "log",
- "rand_core 0.6.4",
- "serde",
- "serde-json-core",
- "smoltcp",
- "sntpc",
-]
 
 [[package]]
 name = "nb"

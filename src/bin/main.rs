@@ -16,14 +16,14 @@ use log::{info, LevelFilter};
 
 use esp_wifi::init;
 
-use my_esp_project::button::ButtonState;
-use my_esp_project::deep_sleep::{
+use esp32_mqtt_rs::button::ButtonState;
+use esp32_mqtt_rs::deep_sleep::{
     self, SLEEP_DELAY_MS, clear_ext1_wakeup_status, decode_wake_gpios, read_ext1_wakeup_status,
 };
-use my_esp_project::led::{LED_DISPLAY_MS, LedActivityState};
-use my_esp_project::mqtt;
-use my_esp_project::ntp;
-use my_esp_project::wifi::{self, WifiCredentials};
+use esp32_mqtt_rs::led::{LED_DISPLAY_MS, LedActivityState};
+use esp32_mqtt_rs::mqtt;
+use esp32_mqtt_rs::ntp;
+use esp32_mqtt_rs::wifi::{self, WifiCredentials};
 
 /// Polling interval (milliseconds)
 const POLL_INTERVAL_MS: u32 = 10;
