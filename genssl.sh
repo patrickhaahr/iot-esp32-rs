@@ -11,8 +11,8 @@ fi
 # Default IP if not set
 MQTT_BROKER_IP="${MQTT_BROKER_IP}"
 
-mkdir -p mosquitto/certs
-cd mosquitto/certs
+mkdir -p mosquitto/config/certs
+cd mosquitto/config/certs
 
 # Generate CA (we act as our own CA)
 openssl req -new -x509 -days 3650 -extensions v3_ca -keyout ca.key -out ca.crt -nodes -subj "/CN=MyLocalCA"
