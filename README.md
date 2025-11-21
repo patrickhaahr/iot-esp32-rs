@@ -1,4 +1,6 @@
-# IoT ESP32 Rust Project
+# ESP32 Smiley Feedback Panel
+
+![ESP32 Smiley Feedback Panel](docs/esp32-smiley-feedback-panel.jpg)
 
 ![Fritzing Circuit Diagram](docs/fritzing.png)
 
