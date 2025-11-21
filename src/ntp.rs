@@ -157,7 +157,7 @@ pub fn setup_network_interface(
         delay.delay_millis(100);
         timeout_counter += 1;
     }
-    
+
     sockets.remove(dhcp_handle);
 
     if !got_ip {
@@ -176,7 +176,10 @@ pub fn sync_time_with_device(
     device: &mut WifiDevice<'_>,
     sockets: &mut SocketSet,
 ) -> Result<NtpTime, &'static str> {
-    info!("NTP: Starting time synchronization with {}", DENMARK_NTP_SERVER);
+    info!(
+        "NTP: Starting time synchronization with {}",
+        DENMARK_NTP_SERVER
+    );
 
     let delay = Delay::new();
 
@@ -194,14 +197,8 @@ pub fn sync_time_with_device(
     info!("NTP: Using IP address: {}", our_ip);
 
     // Create UDP socket with owned buffers
-    let udp_rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY; 4],
-        vec![0u8; 256],
-    );
-    let udp_tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY; 4],
-        vec![0u8; 256],
-    );
+    let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0u8; 256]);
+    let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0u8; 256]);
 
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
     let udp_handle = sockets.add(udp_socket);
@@ -294,10 +291,7 @@ pub fn sync_time_with_device(
     // Convert fraction to microseconds
     let microseconds = ((ntp_fraction as u64 * 1_000_000) >> 32) as u32;
 
-    info!(
-        "NTP: Sync successful! Unix timestamp: {}",
-        unix_timestamp
-    );
+    info!("NTP: Sync successful! Unix timestamp: {}", unix_timestamp);
 
     Ok(NtpTime {
         unix_timestamp,
@@ -308,4 +302,87 @@ pub fn sync_time_with_device(
 /// Check if current date is in Copenhagen summer time (CEST)
 pub fn is_summer_time_approx(month: u8) -> bool {
     (4..=9).contains(&month)
+}
+
+/// Format Unix timestamp to human-readable datetime string
+/// Returns format: "YYYY-MM-DD HH:MM:SS TZ"
+/// Example: "2025-11-21 14:32:20 CET"
+pub fn format_datetime(unix_timestamp: u64, is_summer_time: bool) -> heapless::String<32> {
+    use heapless::String;
+
+    // Convert to Copenhagen timezone
+    let offset_secs = if is_summer_time {
+        COPENHAGEN_SUMMER_OFFSET_SECS
+    } else {
+        COPENHAGEN_OFFSET_SECS
+    };
+    let local_ts = unix_timestamp.wrapping_add(offset_secs as u64);
+
+    // Calculate date components
+    // Days since Unix epoch (1970-01-01)
+    let days_since_epoch = local_ts / 86400;
+
+    // Simple algorithm to get year, month, day from days since epoch
+    // Starting from 1970-01-01
+    let mut year = 1970u32;
+    let mut remaining_days = days_since_epoch as u32;
+
+    // Calculate year
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days >= days_in_year {
+            remaining_days -= days_in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Calculate month and day
+    let (month, day) = days_to_month_day(remaining_days, is_leap_year(year));
+
+    // Calculate time components
+    let time_of_day = local_ts % 86400;
+    let hours = (time_of_day / 3600) as u8;
+    let minutes = ((time_of_day % 3600) / 60) as u8;
+    let seconds = (time_of_day % 60) as u8;
+
+    // Timezone string
+    let tz = if is_summer_time { "CEST" } else { "CET" };
+
+    // Format: "YYYY-MM-DD HH:MM:SS TZ"
+    let mut result = String::new();
+    use core::fmt::Write;
+    let _ = write!(
+        &mut result,
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} {}",
+        year, month, day, hours, minutes, seconds, tz
+    );
+
+    result
+}
+
+/// Check if a year is a leap year
+fn is_leap_year(year: u32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Convert day of year to month and day
+fn days_to_month_day(day_of_year: u32, is_leap: bool) -> (u8, u8) {
+    let days_in_months = if is_leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut remaining = day_of_year;
+    for (month_idx, &days) in days_in_months.iter().enumerate() {
+        if remaining < days {
+            return ((month_idx + 1) as u8, (remaining + 1) as u8);
+        }
+        remaining -= days;
+    }
+
+    // Should not reach here, but return last day of year as fallback
+    (12, 31)
 }

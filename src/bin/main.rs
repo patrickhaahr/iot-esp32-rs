@@ -8,19 +8,19 @@ use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, InputConfig, Output, OutputConfig, Pull, RtcPin};
 use esp_hal::main;
-use esp_hal::rtc_cntl::{reset_reason, wakeup_cause, Rtc, SocResetReason};
+use esp_hal::rng::Rng;
+use esp_hal::rtc_cntl::{Rtc, SocResetReason, reset_reason, wakeup_cause};
 use esp_hal::system::Cpu;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::rng::Rng;
 use log::info;
 
 use esp_wifi::init;
 
 use my_esp_project::button::ButtonState;
 use my_esp_project::deep_sleep::{
-    self, clear_ext1_wakeup_status, decode_wake_gpios, read_ext1_wakeup_status, SLEEP_DELAY_MS,
+    self, SLEEP_DELAY_MS, clear_ext1_wakeup_status, decode_wake_gpios, read_ext1_wakeup_status,
 };
-use my_esp_project::led::{LedActivityState, LED_DISPLAY_MS};
+use my_esp_project::led::{LED_DISPLAY_MS, LedActivityState};
 use my_esp_project::mqtt;
 use my_esp_project::ntp;
 use my_esp_project::wifi::{self, WifiCredentials};
@@ -129,10 +129,7 @@ fn main() -> ! {
     let rng = Rng::new(peripherals.RNG);
 
     // Initialize ESP-WiFi
-    let init = init(
-        timg0.timer0,
-        rng,
-    ).unwrap();
+    let init = init(timg0.timer0, rng).unwrap();
 
     let (mut wifi_controller, interfaces) = esp_wifi::wifi::new(&init, peripherals.WIFI).unwrap();
     let mut wifi_device = interfaces.sta;
@@ -176,10 +173,11 @@ fn main() -> ! {
     // Initialize SHA and RSA peripherals if needed by Tls
     let mut tls = esp_mbedtls::Tls::new().unwrap();
     tls.set_debug(4);
-    
+
     // Attempt NTP time synchronization
     info!("Attempting NTP time synchronization...");
-    let current_time = match ntp::sync_time_with_device(&mut iface, &mut wifi_device, &mut sockets) {
+    let current_time = match ntp::sync_time_with_device(&mut iface, &mut wifi_device, &mut sockets)
+    {
         Ok(time) => {
             let (h, m, s) = time.to_copenhagen_hms(false); // Use CET (winter time)
             info!(
@@ -357,22 +355,22 @@ fn main() -> ! {
                     );
 
                     // We need to re-borrow components from the main scope for each call
-                    // Since we are in a loop, we can't just move them. 
-                    // But the publish_button_feedback function takes mutable references, which is fine 
+                    // Since we are in a loop, we can't just move them.
+                    // But the publish_button_feedback function takes mutable references, which is fine
                     // as long as we don't hold onto them across iterations in a way the borrow checker dislikes.
-                    // The issue previously was reusing `iface` etc which were borrowed mutably in previous iteration? 
+                    // The issue previously was reusing `iface` etc which were borrowed mutably in previous iteration?
                     // No, `publish_button_feedback` finishes, so borrows should end.
                     //
-                    // The previous error was: 
+                    // The previous error was:
                     // `iface` was mutably borrowed here in the previous iteration of the loop
-                    // 
+                    //
                     // This happens if the lifetime 'a of the mutable borrow is inferred to be longer than the loop body.
-                    // 
+                    //
                     // publish_button_feedback<'a, 'd>(..., sockets: &'a mut SocketSet<'a>, ...)
                     // The signature requires `sockets` to live for 'a, AND it borrows `sockets` for 'a.
                     // This effectively locks `sockets` for its entire lifetime.
                     // We need to fix the signature in mqtt.rs to allow re-borrowing.
-                    
+
                     match mqtt::publish_button_feedback(
                         &mut iface,
                         &mut wifi_device,

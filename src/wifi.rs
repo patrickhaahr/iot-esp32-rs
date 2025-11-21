@@ -29,7 +29,9 @@ pub fn connect<'a, 'd>(
         ..Default::default()
     });
 
-    controller.set_configuration(&client_config).map_err(|_| "Failed to set config")?;
+    controller
+        .set_configuration(&client_config)
+        .map_err(|_| "Failed to set config")?;
 
     controller.start().map_err(|_| "Failed to start WiFi")?;
     info!("WiFi started, connecting to '{}'...", credentials.ssid);
